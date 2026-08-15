@@ -35,13 +35,21 @@ Signal Desk reads a spreadsheet the way an analyst would on first contact. It sn
 - **Cohorts** building a retention triangle, cumulative value per entity, average retention curve and cohort sizes from any repeating entity plus a date
 - **Briefing** written by Claude from the computed profile only
 
+### Resolving problems
+
+Every quality flag that can be resolved carries a **resolve** button offering each sensible remedy, with the effect it would have and a note on when it is the right call. Gaps can be filled with the median, mean, zero, the most common value, or the previous row, or the rows can be dropped. Duplicates can lose their repeats or every copy. Outliers can be capped at the fences or dropped. Unreadable values can be coerced to missing so the column becomes usable. Sloppy categories can be trimmed and case-unified. Dead columns can be excluded.
+
+Only one fix applies per issue per column, so choosing another swaps it in. The Fixes applied panel lists every fix with an on/off toggle, so you can see the analysis with and without it in one click, and a swap button to reopen the chooser.
+
+Fixes are never destructive. They apply to the working copy only, changed cells are marked in amber wherever they appear with the original value on hover, a banner discloses how many values changed and how many rows are held out, the exported report carries a Fixes applied section, and the verifier includes a check comparing the raw rows against a signature taken at load time.
+
 ### Drill-down
 
 Every statistic, bar, point, cell and tile opens an inspector showing how the number was calculated, a chart of just that slice, and every row that fed it, loading in chunks so large selections do not freeze the tab. From there you can filter the whole desk to that selection or download exactly those rows as CSV.
 
 ### Verification
 
-A **Verify this analysis** button runs fourteen reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, and confirms cohort and pivot totals reconcile three separate ways.
+A **Verify this analysis** button runs up to eighteen reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, confirms cohort and pivot totals reconcile three separate ways, and proves the source file is untouched by any fix.
 
 ### Control
 
@@ -65,7 +73,7 @@ Large files parse in chunks with a progress bar and an adjustable row limit, wid
 3. Tap any number that looks surprising
 4. Press Verify this analysis before you act on anything
 
-A built-in guide behind the `?` icon covers 46 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
+A built-in guide behind the `?` icon covers 54 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
 
 ## AI briefing
 
@@ -75,7 +83,7 @@ The Briefing tab calls the Anthropic API directly from the browser using your ow
 
 Single file, vanilla HTML, CSS and JavaScript. No frameworks, no build step, no dependencies beyond Google Fonts. All charts are drawn on hand-rolled canvas: line, bar, histogram, scatter with an OLS fit, diverging heatmap and radial gauge, all with hit-test regions so every element is clickable. Scales from a 375px phone to desktop.
 
-Validated with 497 automated tests across six suites covering parsing, statistics, cohorts, the inspector, the guide, pivot and comparison arithmetic, the verifier, settings and workspace round-trips, plus canvas instrumentation confirming no non-finite geometry across roughly twelve thousand draw calls at both phone and desktop widths.
+Validated with 557 automated tests across seven suites covering parsing, statistics, cohorts, the inspector, the guide, pivot and comparison arithmetic, the verifier, settings and workspace round-trips, and the remediation layer, plus canvas instrumentation confirming no non-finite geometry across roughly twelve thousand draw calls at both phone and desktop widths.
 
 ## Credits
 
