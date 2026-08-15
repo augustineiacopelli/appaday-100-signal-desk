@@ -196,6 +196,24 @@ input:focus,select:focus,textarea:focus{border-color:var(--sig); outline:none}
   border-top-color:var(--sig); border-radius:50%; animation:sp .7s linear infinite; vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 
+/* ---------- fixes ---------- */
+.fix-group{border:1px solid var(--line); border-radius:9px; padding:11px; margin-top:11px}
+.fix-group h3{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px}
+.fix-opt{display:block; width:100%; text-align:left; background:var(--raise); border:1px solid var(--line);
+  border-radius:8px; padding:9px 11px; margin-top:7px}
+.fix-opt:hover{border-color:var(--sig)}
+.fix-opt.on{border-color:var(--sig); background:rgba(47,227,196,.10)}
+.fix-opt.paused{border-color:var(--amber)}
+.fix-lab{display:flex; align-items:center; gap:7px; font-weight:600; font-size:14px; color:var(--txt)}
+.fix-eff{font-family:var(--mono); font-size:11px; color:var(--sig); margin-top:3px}
+.fix-note{font-size:12px; color:var(--dim); margin-top:4px; line-height:1.5}
+.fix-row{display:flex; align-items:center; gap:9px; border:1px solid var(--line); border-radius:8px;
+  padding:9px 11px; margin-top:8px; flex-wrap:wrap}
+.fix-row.off{opacity:.55}
+.fix-rowtxt{flex:1; min-width:180px}
+.fix-btn{margin-left:auto}
+#fix-body{overflow-y:auto; max-height:62dvh; margin-top:4px}
+
 /* ---------- light theme ---------- */
 body.light{
   --ink:#F4F7FA; --panel:#FFFFFF; --raise:#EDF2F7; --line:#D3DCE6;
@@ -265,6 +283,8 @@ body.notips .tip{display:none}
 .ins-rows table{font-size:11px}
 .ins-rows thead th{position:sticky; top:0; background:var(--raise); z-index:2}
 .ins-rows td.focus{color:var(--sig)}
+.ins-rows td.fixedcell{color:var(--amber)}
+.ins-rows td.fixedcell::after{content:" *"; color:var(--faint)}
 .ins-count{font-family:var(--mono); font-size:11px; color:var(--faint); padding:8px 10px}
 .stat.tap,.flag.tap,tr.tap,.telem .cell.tap{cursor:pointer}
 .stat.tap:hover{outline:1px solid var(--sig)}
@@ -414,6 +434,11 @@ footer a:hover{color:var(--sig)}
       </div>
     </div>
     <div class="card" style="margin-top:12px">
+      <p class="eyebrow">Fixes applied</p>
+      <p style="margin-top:0;font-size:13px">Every fix is reversible and only ever changes the working copy. Switch one off to see the analysis without it.</p>
+      <div id="fixlist"></div>
+    </div>
+    <div class="card" style="margin-top:12px">
       <p class="eyebrow">Reconciliation</p>
       <p style="margin-top:0;font-size:13px">Recompute the headline figures by a second, independent route and compare the two answers. This is the check an analyst runs before sending anything out.</p>
       <div class="btnrow" style="justify-content:flex-start"><button class="btn" id="runcheck">Verify this analysis</button></div>
@@ -550,6 +575,19 @@ footer a:hover{color:var(--sig)}
       <button class="btn" id="kclear">Forget key</button>
       <button class="btn pri" id="ksave">Save</button>
     </div>
+  </div>
+</div>
+
+<div class="veil" id="fixveil">
+  <div class="modal wide" role="dialog" aria-modal="true" aria-label="Resolve a data issue">
+    <div class="ins-head">
+      <div style="flex:1;min-width:0">
+        <div class="ins-sub">Resolution</div>
+        <h2 id="fix-title">Resolve</h2>
+      </div>
+      <button class="icon-btn" id="fix-close" aria-label="Close">&#215;</button>
+    </div>
+    <div id="fix-body"></div>
   </div>
 </div>
 
@@ -722,7 +760,7 @@ function isMissing(v){
 var S = {
   name: '', headers: [], rows: [], cols: [], view: [], profile: null,
   filters: {}, corr: null, cohort: null, custom: [], charts: [],
-  opt: null, ov: [], miss: {}, truncated: 0
+  opt: null, ov: [], miss: {}, truncated: 0, fixes: [], dropped: {}, droppedN: 0
 };
 S.opt = loadOpt();
 S.miss = missingSet();
@@ -1024,9 +1062,10 @@ function ingestTable(table,delim,name){
   S.ov=[]; for(i=0;i<headers.length;i++) S.ov.push(null);
   S.filters={}; S.custom=[]; S.cohort=null; S.lastGood='{}'; S.rowFilter=null; S.lastGoodRows=null;
   S.pivot=null; S.pivotParams=null; S.compare=null; S.compareParams=null;
-  S.cohortParams=null;
+  S.cohortParams=null; S.fixes=[]; S.dropped={}; S.droppedN=0;
+  S.rawSig=rawSignature();
   derive();
-  S.view=[]; for(i=0;i<S.rows.length;i++) S.view.push(i);
+  S.view=baseRows();
   return S;
 }
 function derive(){
@@ -1036,7 +1075,8 @@ function derive(){
     var raw=new Array(S.rows.length);
     for(k=0;k<S.rows.length;k++) raw[k]=S.rows[k][i];
     var ov=S.ov[i]||{};
-    var c=classify(ov.name||S.headers[i],raw,ov.type);
+    var force = ov.type || fixForce(i);
+    var c=classify(ov.name||S.headers[i],raw,force);
     c.idx=i; c.delim=S.delim; c.override=ov.type||'auto';
     c.excluded=(c.type==='excluded');
     c.vals=new Array(S.rows.length);
@@ -1052,6 +1092,7 @@ function derive(){
     cols.push(c);
   }
   S.cols=cols;
+  applyFixes();
 }
 
 /* ---------------- profile against current view ---------------- */
@@ -1642,6 +1683,11 @@ function renderOverview(){
     (function(flag){
       d.onclick=function(){ insFlag(flag); };
       d.onkeydown=function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); insFlag(flag); } };
+      if(isResolvable(flag)){
+        var rb=el('button','ov-btn','resolve');
+        rb.onclick=function(e){ e.stopPropagation(); openFix(flag); };
+        d.appendChild(rb);
+      }
     })(f);
     fl.appendChild(d);
   }
@@ -1792,11 +1838,19 @@ function dateFilter(idx,pc){
   d.appendChild(row);
   return d;
 }
-function applyFilters(){
+function rawSignature(){
+  var n=S.rows.length, acc=n+':'+S.headers.join('\u0001')+':';
+  for(var i=0;i<n;i+=Math.max(1,Math.floor(n/40))) acc+=S.rows[i].join('\u0001')+';';
+  var h=0;
+  for(var j=0;j<acc.length;j++){ h=(h*31+acc.charCodeAt(j))|0; }
+  return n+'.'+h;
+}
+function applyFilters(quiet){
   var keys=[], k;
   for(k in S.filters){ if(Object.prototype.hasOwnProperty.call(S.filters,k)) keys.push(k); }
   var view=[];
   for(var r=0;r<S.rows.length;r++){
+    if(S.dropped[r]) continue;
     var ok=true;
     if(S.rowFilter && !S.rowFilter.set[r]) ok=false;
     for(var i=0;ok && i<keys.length;i++){
@@ -1815,6 +1869,7 @@ function applyFilters(){
     if(ok) view.push(r);
   }
   if(!view.length){
+    if(quiet){ S.view=baseRows(); refresh(); return; }
     try{ S.filters=JSON.parse(S.lastGood||'{}'); }catch(e){ S.filters={}; }
     S.rowFilter=S.lastGoodRows||null;
     renderFilters(); updateSelChip();
@@ -1826,7 +1881,7 @@ function applyFilters(){
   S.lastGoodRows=S.rowFilter;
   updateSelChip();
   refresh(true);
-  toast(commas(view.length)+' rows in scope');
+  if(!quiet) toast(commas(view.length)+' rows in scope');
 }
 
 /* ---------------- columns ---------------- */
@@ -2424,6 +2479,17 @@ function buildReport(){
   L.push('');
   L.push('Rows in scope: '+commas(p.rows)+' of '+commas(p.total)+'. Columns: '+p.cols.length+'. Numeric measures: '+p.numeric+'.');
   L.push('');
+  if(S.fixes.length){
+    L.push('## Fixes applied');
+    L.push('');
+    for(i=0;i<S.fixes.length;i++){
+      var fx2=S.fixes[i];
+      L.push('- '+(fx2.on?'':'(off) ')+fixDesc(fx2)+(fx2.on&&fx2.n?' ['+commas(fx2.n)+']':''));
+    }
+    L.push('');
+    L.push('The source file was not modified. Every figure below is computed with the fixes marked above applied.');
+    L.push('');
+  }
   L.push('## Data quality: '+p.quality.score+' ('+p.quality.grade+')');
   L.push('');
   for(i=0;i<p.quality.flags.length;i++) L.push('- '+p.quality.flags[i].t+': '+p.quality.flags[i].d);
@@ -2561,9 +2627,17 @@ function insMore(){
       var r=src[i];
       tr.appendChild(el('td',null,String(r+1)));
       for(j=0;j<S.headers.length;j++){
-        var v=S.rows[r][j];
-        var cls=(j===INS.focus?'focus':'')+(S.cols[j].type==='number'?' num':'');
-        tr.appendChild(el('td',cls,v===''?'\u2014':String(v).slice(0,60)));
+        var col=S.cols[j], v=S.rows[r][j];
+        var cls=(j===INS.focus?'focus':'')+(col.type==='number'?' num':'');
+        var shown = v===''?'\u2014':String(v).slice(0,60);
+        if(col.orig && col.orig[r]!==col.vals[r]){
+          cls+=' fixedcell';
+          var fv=col.vals[r];
+          shown = (fv===null?'\u2014':String(fv).slice(0,60));
+        }
+        var td=el('td',cls,shown);
+        if(cls.indexOf('fixedcell')>=0) td.title='Original: '+(v===''?'(empty)':v);
+        tr.appendChild(td);
       }
     }
     INS.tbody.appendChild(tr);
@@ -3111,6 +3185,22 @@ var HELP=[
    a:'Three ways. Press Verify this analysis on the Overview tab and the app recomputes its headline figures by a second independent route and shows you both answers. Tap any number to see the arithmetic and the rows behind it. Or export those rows as a CSV and check them in a spreadsheet.' },
  { c:'Using it', q:'What does the verifier actually test?',
    a:'That the scope contains no repeated or out of range rows, that present plus missing equals the row count in every column, that an independent re-sum matches every reported total, that the median really splits the values in half, that histogram bins account for every value, that grouped totals add back to the ungrouped total, that the correlation matrix is symmetric and bounded, that the duplicate count reproduces, that the quality score equals one hundred minus its penalties, and that cohort and pivot totals reconcile three different ways.' },
+ { c:'Fixing data', q:'How do I actually fix a problem it found?',
+   a:'Press resolve on any flag on the Overview tab. You get every sensible way to deal with that issue, each showing what it would change and when it is the right call. Pick one and the whole app recomputes immediately.' },
+ { c:'Fixing data', q:'Can I try one fix and then another?',
+   a:'Yes, that is the point. Only one fix applies per issue per column at a time, so choosing a different one swaps it in. The Fixes applied panel on the Overview tab lets you switch any fix off to see the analysis without it, then back on again.' },
+ { c:'Fixing data', q:'Does this change my file?',
+   a:'Never. Fixes apply to the working copy in the browser only. The verifier includes a check that compares the raw rows against a signature taken when the file was loaded, so you can prove the source is untouched.' },
+ { c:'Fixing data', q:'Which gap-filling method should I choose?',
+   a:'Median is the safe default because extreme values do not move it. Mean keeps the average identical but can invent a value few rows really have on a skewed column. Zero is only right when missing genuinely means none. Carry forward suits time-ordered data. Dropping the rows is cleanest when the gaps are few and costly when they are not.' },
+ { c:'Fixing data', q:'Should I cap outliers or drop them?',
+   a:'Capping, also called winsorising, pulls extreme values back to the fences and keeps every row, so you lose the true range but keep the rest of the record. Dropping removes the rows entirely and is only safe when you are confident they are errors rather than real extremes.' },
+ { c:'Fixing data', q:'What does trim and unify capitalisation do?',
+   a:'It collapses category values that differ only by stray spaces or letter case, so East, east and EAST become one group, keeping whichever spelling is most common. It often cuts the distinct count sharply on hand-entered data.' },
+ { c:'Fixing data', q:'A column has a few unreadable values.',
+   a:'Resolve the mixed types flag and choose to read it as a number or date with the unreadable values treated as missing. The column becomes usable, and you can then fill or drop the gaps that creates as a second, separate fix.' },
+ { c:'Fixing data', q:'Are the fixes visible to anyone reading my work?',
+   a:'Yes, deliberately. A banner lists them, the Fixes applied panel shows each one, changed cells are marked in amber in any drill-down with the original value on hover, and the exported report carries a Fixes applied section stating that the source file was not modified.' },
  { c:'Settings', q:'My numbers use commas for decimals.',
    a:'Open data settings with the square icon in the header and switch the decimal separator to comma. European exports where 1.234,56 means one thousand two hundred thirty four point five six are then read correctly, and the change applies to the file already loaded.' },
  { c:'Settings', q:'My dates are day first, not month first.',
@@ -3685,6 +3775,28 @@ function selfCheck(){
   add('Duplicate count reproduces on a second pass',dupCount===p.quality.dup,
     'Independent recount found '+commas(dupCount)+' duplicates against a reported '+commas(p.quality.dup)+'.');
 
+  add('The original file is untouched by fixes',S.rawSig===rawSignature(),
+    'The raw rows are compared against a signature taken when the file was loaded. Fixes only ever change the working copy.');
+  if(S.fixes.length){
+    var onN=activeFixes().length, held=0;
+    for(var dr in S.dropped){ if(Object.prototype.hasOwnProperty.call(S.dropped,dr)) held++; }
+    add('Rows held out by fixes are accounted for',held+baseRows().length===S.rows.length,
+      commas(held)+' rows held out plus '+commas(baseRows().length)+' available equals '+commas(S.rows.length)+' in the file.');
+    var fillBad=0, fillNote='No gap-filling fixes active.';
+    var af=activeFixes();
+    for(i=0;i<af.length;i++){
+      var fx=af[i];
+      if(fx.col===null||fx.col===undefined) continue;
+      if(FIX_FAMILY[fx.kind]!=='missing'||fx.kind==='dropMissing'||fx.kind==='ffill') continue;
+      var left=0, cc=S.cols[fx.col];
+      for(j=0;j<S.view.length;j++){ if(cc.vals[S.view[j]]===null) left++; }
+      if(left>0) fillBad++;
+      fillNote='After filling '+esc(cc.name)+', '+commas(left)+' gaps remain in scope.';
+    }
+    add('Gap-filling fixes leave no gaps behind',fillBad===0,fillNote);
+    add('Every fix is individually reversible',onN<=S.fixes.length,
+      commas(S.fixes.length)+' fixes recorded, '+commas(onN)+' currently on. Switching one off recomputes without it.');
+  }
   var pen=100;
   for(i=0;i<p.quality.pens.length;i++) pen-=p.quality.pens[i].a;
   add('Quality score equals 100 minus its penalties',Math.abs(Math.round(pen)-p.quality.score)<=1,
@@ -3757,11 +3869,7 @@ function applyOpt(reparse){
   }
   syncTheme();
 }
-function allRows(){
-  var v=[];
-  for(var i=0;i<S.rows.length;i++) v.push(i);
-  return v;
-}
+function allRows(){ return baseRows(); }
 function openData(){
   $('o-date').value=S.opt.dateOrder;
   $('o-dec').value=S.opt.decimal;
@@ -3860,7 +3968,7 @@ function workspaceJSON(){
   return JSON.stringify({
     kind:'signal-desk-workspace', version:1,
     dataset:S.name, columns:S.headers.slice(),
-    options:S.opt, overrides:S.ov,
+    options:S.opt, overrides:S.ov, fixes:S.fixes,
     filters:S.filters,
     rowSelection: S.rowFilter ? { label:S.rowFilter.label, rows:Object.keys(S.rowFilter.set).map(Number) } : null,
     pivot:S.pivotParams||null, compare:S.compareParams||null, cohort:S.cohortParams||null,
@@ -3886,6 +3994,7 @@ function loadWorkspace(text){
   if(mismatch){ toast('This workspace was saved from a file with different columns.'); return; }
   if(w.options){ for(var k in DEFAULT_OPT){ if(w.options[k]!==undefined) S.opt[k]=w.options[k]; } saveOpt(); }
   S.ov = (w.overrides && w.overrides.length===S.headers.length) ? w.overrides : S.ov;
+  S.fixes = (w.fixes && w.fixes.length!==undefined) ? w.fixes : [];
   derive();
   S.filters = w.filters || {};
   S.rowFilter=null;
@@ -3901,7 +4010,7 @@ function loadWorkspace(text){
   S.pivotParams = w.pivot || null;
   S.compareParams = w.compare || null;
   S.cohortParams = w.cohort || null;
-  S.view=allRows();
+  S.view=baseRows();
   var ok=true;
   try{ applyFilters(); }catch(e){ ok=false; }
   if(!ok || !S.view.length){ S.filters={}; S.rowFilter=null; S.view=allRows(); refresh(); }
@@ -3913,6 +4022,465 @@ function loadWorkspace(text){
     }catch(e){ S.cohortParams=null; }
   }
   toast('Workspace restored');
+}
+
+/* ---------------- remediation ---------------- */
+var FIX_LABEL = {
+  fillMedian:'Fill gaps with the median',
+  fillMean:'Fill gaps with the mean',
+  fillZero:'Fill gaps with zero',
+  fillMode:'Fill gaps with the most common value',
+  fillConst:'Fill gaps with a value you choose',
+  ffill:'Carry the previous value forward',
+  dropMissing:'Drop rows missing this column',
+  dedupeFirst:'Keep the first of each duplicate',
+  dropDupes:'Drop every row involved in a duplicate',
+  capOutliers:'Pull outliers back to the fences',
+  dropOutliers:'Drop the outlier rows',
+  coerce:'Treat unreadable values as missing',
+  excludeCol:'Exclude this column from the analysis',
+  trimCase:'Trim spacing and unify capitalisation'
+};
+var FIX_FAMILY = {
+  fillMedian:'missing', fillMean:'missing', fillZero:'missing', fillMode:'missing',
+  fillConst:'missing', ffill:'missing', dropMissing:'missing',
+  dedupeFirst:'dupes', dropDupes:'dupes',
+  capOutliers:'outliers', dropOutliers:'outliers',
+  coerce:'types', excludeCol:'types', trimCase:'tidy'
+};
+function fixKey(f){ return (f.col===null||f.col===undefined?'*':f.col)+'|'+FIX_FAMILY[f.kind]; }
+function fixDesc(f){
+  var name = (f.col===null||f.col===undefined) ? 'the table' : (S.cols[f.col]?S.cols[f.col].name:'column '+f.col);
+  var lab = FIX_LABEL[f.kind]||f.kind;
+  if(f.kind==='fillConst') lab='Fill gaps with '+f.value;
+  if(f.kind==='coerce') lab='Read as '+f.value+', treating unreadable values as missing';
+  return name+': '+lab.charAt(0).toLowerCase()+lab.slice(1);
+}
+function activeFixes(){
+  var out=[];
+  for(var i=0;i<S.fixes.length;i++) if(S.fixes[i].on) out.push(S.fixes[i]);
+  return out;
+}
+function fixFor(ci,family){
+  for(var i=0;i<S.fixes.length;i++){
+    var f=S.fixes[i];
+    if(f.col===ci && FIX_FAMILY[f.kind]===family) return f;
+  }
+  return null;
+}
+function addFix(f){
+  var key=fixKey(f), keep=[];
+  for(var i=0;i<S.fixes.length;i++){ if(fixKey(S.fixes[i])!==key) keep.push(S.fixes[i]); }
+  f.on=true;
+  keep.push(f);
+  S.fixes=keep;
+}
+function removeFix(key){
+  var keep=[];
+  for(var i=0;i<S.fixes.length;i++){ if(fixKey(S.fixes[i])!==key) keep.push(S.fixes[i]); }
+  S.fixes=keep;
+}
+function fixForce(ci){
+  for(var i=0;i<S.fixes.length;i++){
+    var f=S.fixes[i];
+    if(!f.on || f.col!==ci) continue;
+    if(f.kind==='excludeCol') return 'exclude';
+    if(f.kind==='coerce') return f.value;
+  }
+  return null;
+}
+
+/* apply the value-level and row-level fixes over the freshly derived columns */
+function applyFixes(){
+  S.dropped={};
+  var list=activeFixes(), i, k, c, f;
+  for(i=0;i<S.cols.length;i++) S.cols[i].orig=null;
+  if(!list.length) return;
+  for(i=0;i<S.cols.length;i++) S.cols[i].orig=S.cols[i].vals.slice();
+
+  for(i=0;i<list.length;i++){
+    f=list[i]; f.n=0;
+    if(f.col===null||f.col===undefined) continue;
+    c=S.cols[f.col];
+    if(!c) continue;
+    if(f.kind==='trimCase'){
+      var counts={}, best={};
+      for(k=0;k<c.vals.length;k++){
+        var v0=c.vals[k];
+        if(v0===null) continue;
+        var t=String(v0).replace(/\s+/g,' ').replace(/^ | $/g,'');
+        var low=t.toLowerCase();
+        if(!counts[low]) counts[low]={};
+        counts[low][t]=(counts[low][t]||0)+1;
+      }
+      for(var low2 in counts){
+        if(!Object.prototype.hasOwnProperty.call(counts,low2)) continue;
+        var bestN=-1, bestV=null;
+        for(var variant in counts[low2]){
+          if(!Object.prototype.hasOwnProperty.call(counts[low2],variant)) continue;
+          if(counts[low2][variant]>bestN){ bestN=counts[low2][variant]; bestV=variant; }
+        }
+        best[low2]=bestV;
+      }
+      for(k=0;k<c.vals.length;k++){
+        if(c.vals[k]===null) continue;
+        var cur=String(c.vals[k]);
+        var norm=best[cur.replace(/\s+/g,' ').replace(/^ | $/g,'').toLowerCase()];
+        if(norm!==undefined && norm!==cur){ c.vals[k]=norm; f.n++; }
+      }
+      continue;
+    }
+    if(f.kind==='capOutliers'){
+      var nums=[];
+      for(k=0;k<c.vals.length;k++){ if(c.vals[k]!==null&&isFinite(c.vals[k])) nums.push(c.vals[k]); }
+      if(nums.length<4) continue;
+      var st=describe(nums);
+      for(k=0;k<c.vals.length;k++){
+        var v1=c.vals[k];
+        if(v1===null||!isFinite(v1)) continue;
+        if(v1<st.loF){ c.vals[k]=st.loF; f.n++; }
+        else if(v1>st.hiF){ c.vals[k]=st.hiF; f.n++; }
+      }
+      continue;
+    }
+    if(f.kind==='ffill'){
+      var last=null;
+      for(k=0;k<c.vals.length;k++){
+        if(c.vals[k]===null){ if(last!==null){ c.vals[k]=last; f.n++; } }
+        else last=c.vals[k];
+      }
+      continue;
+    }
+    if(FIX_FAMILY[f.kind]==='missing' && f.kind!=='dropMissing'){
+      var fill=null;
+      if(f.kind==='fillZero') fill=0;
+      else if(f.kind==='fillConst'){
+        fill = c.type==='number' ? (parseNum(f.value)?parseNum(f.value).v:null)
+             : (c.type==='date' ? parseDate(f.value) : String(f.value));
+      } else if(f.kind==='fillMedian'||f.kind==='fillMean'){
+        var ns=[];
+        for(k=0;k<c.vals.length;k++){ if(c.vals[k]!==null&&isFinite(c.vals[k])) ns.push(c.vals[k]); }
+        if(ns.length){
+          var d2=describe(ns);
+          fill = f.kind==='fillMedian' ? d2.med : d2.mean;
+        }
+      } else if(f.kind==='fillMode'){
+        var freq={}, bn=-1;
+        for(k=0;k<c.vals.length;k++){
+          if(c.vals[k]===null) continue;
+          var key2=String(c.vals[k]);
+          freq[key2]=(freq[key2]||0)+1;
+          if(freq[key2]>bn){ bn=freq[key2]; fill=c.vals[k]; }
+        }
+      }
+      if(fill===null||fill===undefined) continue;
+      for(k=0;k<c.vals.length;k++){ if(c.vals[k]===null){ c.vals[k]=fill; f.n++; } }
+      continue;
+    }
+  }
+
+  for(i=0;i<list.length;i++){
+    f=list[i];
+    if(f.kind==='dropMissing'){
+      c=S.cols[f.col];
+      if(!c) continue;
+      f.n=0;
+      for(k=0;k<c.vals.length;k++){ if(c.vals[k]===null && !S.dropped[k]){ S.dropped[k]=1; f.n++; } }
+    } else if(f.kind==='dropOutliers'){
+      c=S.cols[f.col];
+      if(!c) continue;
+      var nums2=[];
+      for(k=0;k<c.vals.length;k++){ if(c.vals[k]!==null&&isFinite(c.vals[k])) nums2.push(c.vals[k]); }
+      if(nums2.length<4) continue;
+      var st2=describe(nums2);
+      f.n=0;
+      for(k=0;k<c.vals.length;k++){
+        var v2=c.vals[k];
+        if(v2===null||!isFinite(v2)) continue;
+        if((v2<st2.loF||v2>st2.hiF) && !S.dropped[k]){ S.dropped[k]=1; f.n++; }
+      }
+    } else if(f.kind==='dedupeFirst'||f.kind==='dropDupes'){
+      var seen={}, groups={};
+      for(k=0;k<S.rows.length;k++){
+        var sig=S.rows[k].join('\u0001');
+        if(!groups[sig]) groups[sig]=[];
+        groups[sig].push(k);
+      }
+      f.n=0;
+      for(var sig2 in groups){
+        if(!Object.prototype.hasOwnProperty.call(groups,sig2)) continue;
+        var g=groups[sig2];
+        if(g.length<2) continue;
+        var start = f.kind==='dedupeFirst' ? 1 : 0;
+        for(k=start;k<g.length;k++){ if(!S.dropped[g[k]]){ S.dropped[g[k]]=1; f.n++; } }
+      }
+    }
+  }
+  S.droppedN=0;
+  for(var r in S.dropped){ if(Object.prototype.hasOwnProperty.call(S.dropped,r)) S.droppedN++; }
+}
+function baseRows(){
+  var v=[];
+  for(var i=0;i<S.rows.length;i++){ if(!S.dropped[i]) v.push(i); }
+  return v;
+}
+function rederive(){
+  var before = S.profile ? S.profile.quality.score : null;
+  derive();
+  applyFilters(true);
+  if(!S.view.length){ S.filters={}; S.rowFilter=null; S.view=baseRows(); refresh(); }
+  var after = S.profile ? S.profile.quality.score : null;
+  return { before:before, after:after };
+}
+
+/* ---------------- candidate resolutions per flag ---------------- */
+function origMiss(c){
+  var col=S.cols[c.idx];
+  if(!col || !col.orig) return c.miss;
+  var n=0;
+  for(var i=0;i<col.orig.length;i++){ if(col.orig[i]===null && !S.dropped[i]) n++; }
+  return Math.max(n,c.miss);
+}
+function candidatesFor(flag){
+  var p=S.profile, out=[], i, c;
+  function cols(names,family){
+    var list=[], seen={};
+    for(i=0;i<p.cols.length;i++){
+      var pc=p.cols[i];
+      if((names||[]).indexOf(pc.name)>=0 || (family && fixFor(i,family))){
+        if(!seen[i]){ seen[i]=1; list.push(pc); }
+      }
+    }
+    return list;
+  }
+  if(flag.key==='missing'){
+    var withMiss=p.cols.filter(function(x){ return (x.miss>0 || fixFor(x.idx,'missing')) && !x.excluded; });
+    for(i=0;i<withMiss.length;i++){
+      c=withMiss[i];
+      var gaps=origMiss(c), opts=[];
+      if(c.type==='number'){
+        opts.push({ kind:'fillMedian', effect:gaps+' cells filled with the median',
+          note:'The safe default. The median is unmoved by extreme values, so filling with it does not drag the average.' });
+        opts.push({ kind:'fillMean', effect:gaps+' cells filled with the mean',
+          note:'Preserves the mean exactly, but on a skewed column the filled value may be one few rows actually have.' });
+        opts.push({ kind:'fillZero', effect:gaps+' cells filled with 0',
+          note:'Only correct when missing genuinely means none. It will pull the mean down otherwise.' });
+      } else {
+        opts.push({ kind:'fillMode', effect:gaps+' cells filled with the most common value',
+          note:'Fills with the most frequent value. It inflates that category, so check the share afterwards.' });
+      }
+      opts.push({ kind:'ffill', effect:'up to '+gaps+' cells carried forward',
+        note:'Takes the value from the row above. Sound for time-ordered data, misleading otherwise.' });
+      opts.push({ kind:'dropMissing', effect:gaps+' rows dropped',
+        note:'Loses whatever else those rows contained. Fine when the gaps are few, costly when they are not.' });
+      out.push({ target:c.idx, title:c.name, sub:commas(gaps)+' missing of '+commas(p.rows+(gaps-c.miss)),
+        family:'missing', options:opts });
+    }
+    return out;
+  }
+  if(flag.key==='dup'){
+    if(!p.quality.dup && !fixFor(null,'dupes')) return [];
+    return [{ target:null, title:'Duplicate rows', sub:commas(p.quality.dup)+' exact repeats remaining', family:'dupes', options:[
+      { kind:'dedupeFirst', effect:commas(p.quality.dup)+' rows dropped',
+        note:'Keeps one copy of each. The usual choice when an export ran twice.' },
+      { kind:'dropDupes', effect:'every row in a duplicate group dropped',
+        note:'Stricter. Use when a duplicate means you cannot trust either copy.' }
+    ] }];
+  }
+  if(flag.key==='out'){
+    var oc=cols(flag.cols||[],'outliers');
+    for(i=0;i<oc.length;i++){
+      c=oc[i];
+      if(!c.stat) continue;
+      out.push({ target:c.idx, title:c.name, sub:commas(c.stat.out)+' beyond the fences', family:'outliers', options:[
+        { kind:'capOutliers', effect:'values pulled back to '+fmt(c.stat.loF)+' and '+fmt(c.stat.hiF),
+          note:'Winsorising. Keeps every row and stops one extreme value dominating, at the cost of understating the true range.' },
+        { kind:'dropOutliers', effect:'rows outside the fences dropped',
+          note:'Removes the rows entirely. Only do this when you are confident they are errors rather than real extremes.' }
+      ] });
+    }
+    return out;
+  }
+  if(flag.key==='mixed'){
+    var mc=cols(flag.cols||[],'types');
+    for(i=0;i<mc.length;i++){
+      c=mc[i];
+      var numOk=0, dateOk=0, bad=0;
+      for(var k=0;k<S.view.length;k++){
+        var raw=S.rows[S.view[k]][c.idx];
+        if(isMissing(raw)) continue;
+        if(parseNum(raw)!==null) numOk++;
+        else if(parseDate(raw)!==null) dateOk++;
+        else bad++;
+      }
+      var target = numOk>=dateOk ? 'number' : 'date';
+      out.push({ target:c.idx, title:c.name, sub:commas(bad)+' values will not parse', family:'types', options:[
+        { kind:'coerce', value:target, effect:'read as '+target+', '+commas(bad)+' values become missing',
+          note:'The column becomes usable as a '+target+'. The unreadable values are treated as gaps, which you can then fill or drop.' },
+        { kind:'excludeCol', effect:'column removed from the analysis',
+          note:'Leaves the raw data alone but takes the column out of every statistic, chart and correlation.' }
+      ] });
+    }
+    return out;
+  }
+  if(flag.key==='const'||flag.key==='empty'){
+    var cc=cols(flag.cols||[],'types');
+    for(i=0;i<cc.length;i++){
+      out.push({ target:cc[i].idx, title:cc[i].name, sub:flag.key==='empty'?'no values at all':'never varies',
+        family:'types', options:[
+        { kind:'excludeCol', effect:'column removed from the analysis',
+          note:'It carries no signal, so removing it shortens every menu without losing anything.' }
+      ] });
+    }
+    return out;
+  }
+  if(flag.key==='text'){
+    var tc=cols(flag.cols||[],'tidy');
+    for(i=0;i<tc.length;i++){
+      out.push({ target:tc[i].idx, title:tc[i].name, sub:commas(tc[i].uniq)+' distinct values', family:'tidy', options:[
+        { kind:'trimCase', effect:'spacing trimmed and capitalisation unified',
+          note:'Collapses entries that differ only by stray spaces or case, which often cuts the distinct count sharply.' },
+        { kind:'excludeCol', effect:'column removed from the analysis',
+          note:'Treat it as a label and take it out of the analysis entirely.' }
+      ] });
+    }
+    return out;
+  }
+  return out;
+}
+function isResolvable(flag){ return candidatesFor(flag).length>0; }
+
+/* ---------------- remediation UI ---------------- */
+var FIXFLAG=null;
+function openFix(flag){
+  FIXFLAG=flag;
+  $('fix-title').textContent='Resolve: '+flag.t;
+  $('fixveil').classList.add('on');
+  renderFixOptions();
+}
+function closeFix(){ $('fixveil').classList.remove('on'); }
+function renderFixOptions(){
+  var box=$('fix-body'); clear(box);
+  if(!FIXFLAG){ return; }
+  var groups=candidatesFor(FIXFLAG);
+  if(!groups.length){
+    box.appendChild(el('div','empty','Nothing left to resolve here.'));
+    return;
+  }
+  var intro=el('div','ins-how');
+  intro.innerHTML='<p>Every resolution below is reversible and changes only the working copy. Your file is never modified. '+
+    'Pick one, compare, and swap it for another whenever you like.</p>';
+  box.appendChild(intro);
+  for(var g=0;g<groups.length;g++){
+    (function(grp){
+      var wrap=el('div','fix-group');
+      var h=el('h3'); h.appendChild(document.createTextNode(grp.title));
+      h.appendChild(el('span','chip',grp.sub));
+      wrap.appendChild(h);
+      var current=fixFor(grp.target,grp.family);
+      for(var o=0;o<grp.options.length;o++){
+        (function(opt){
+          var sel = current && current.kind===opt.kind &&
+            (opt.kind!=='fillConst' || String(current.value)===String(opt.value)) &&
+            (opt.kind!=='coerce' || String(current.value)===String(opt.value));
+          var on = sel && current.on;
+          var b=el('button','fix-opt'+(on?' on':(sel?' paused':'')));
+          var lab=el('div','fix-lab',FIX_LABEL[opt.kind]);
+          if(on) lab.appendChild(el('span','chip sig','active'));
+          else if(sel) lab.appendChild(el('span','chip amber','paused'));
+          b.appendChild(lab);
+          b.appendChild(el('div','fix-eff',opt.effect));
+          b.appendChild(el('div','fix-note',opt.note));
+          b.onclick=function(){
+            if(on){ removeFix(fixKey({col:grp.target,kind:opt.kind})); }
+            else addFix({ col:grp.target, kind:opt.kind, value:opt.value });
+            var d=rederive();
+            renderFixOptions();
+            reportDelta(d);
+          };
+          wrap.appendChild(b);
+        })(grp.options[o]);
+      }
+      var none=el('button','fix-opt'+(current?'':' on'));
+      var nl=el('div','fix-lab','Leave as is');
+      if(!current) nl.appendChild(el('span','chip sig','active'));
+      none.appendChild(nl);
+      none.appendChild(el('div','fix-note','Keep the data exactly as it came in and carry the flag forward.'));
+      none.onclick=function(){
+        if(!current) return;
+        removeFix(fixKey({col:grp.target,kind:current.kind}));
+        var d=rederive();
+        renderFixOptions();
+        reportDelta(d);
+      };
+      wrap.appendChild(none);
+      box.appendChild(wrap);
+    })(groups[g]);
+  }
+}
+function reportDelta(d){
+  if(d && d.before!==null && d.after!==null && d.before!==d.after){
+    toast('Quality '+d.before+' \u2192 '+d.after);
+  } else toast('Applied');
+}
+function renderFixList(){
+  var box=$('fixlist');
+  if(!box) return;
+  clear(box);
+  if(!S.fixes.length){
+    box.appendChild(el('div','empty','No fixes applied. Resolve a flag above and it will appear here, where you can switch it off to compare.'));
+    return;
+  }
+  for(var i=0;i<S.fixes.length;i++){
+    (function(f){
+      var row=el('div','fix-row'+(f.on?'':' off'));
+      var txt=el('div','fix-rowtxt');
+      txt.appendChild(el('div','fix-lab',fixDesc(f)));
+      var eff = f.n===undefined ? '' : (FIX_FAMILY[f.kind]==='missing'&&f.kind!=='dropMissing' ? commas(f.n)+' cells filled'
+        : (f.kind==='capOutliers' ? commas(f.n)+' values capped'
+        : (f.kind==='trimCase' ? commas(f.n)+' values normalised'
+        : (f.kind==='coerce'||f.kind==='excludeCol' ? 'applied to the column' : commas(f.n)+' rows dropped'))));
+      txt.appendChild(el('div','fix-eff',f.on?eff:'switched off'));
+      row.appendChild(txt);
+      var tog=el('button','btn',f.on?'On':'Off');
+      tog.onclick=function(){ f.on=!f.on; var d=rederive(); reportDelta(d); };
+      row.appendChild(tog);
+      var swap=el('button','btn','Swap');
+      swap.onclick=function(){ openFix(flagForFix(f)); };
+      row.appendChild(swap);
+      var rm=el('button','btn','Remove');
+      rm.onclick=function(){ removeFix(fixKey(f)); var d=rederive(); reportDelta(d); };
+      row.appendChild(rm);
+      box.appendChild(row);
+    })(S.fixes[i]);
+  }
+  var clr=el('button','btn','Remove every fix');
+  clr.onclick=function(){ S.fixes=[]; var d=rederive(); reportDelta(d); };
+  box.appendChild(clr);
+}
+function flagForFix(f){
+  var fam=FIX_FAMILY[f.kind];
+  var name = (f.col===null||f.col===undefined) ? null : (S.cols[f.col]?S.cols[f.col].name:null);
+  if(fam==='missing') return { key:'missing', t:'Missing values' };
+  if(fam==='dupes') return { key:'dup', t:'Duplicate rows' };
+  if(fam==='outliers') return { key:'out', t:'Outliers', cols:name?[name]:[] };
+  if(fam==='tidy') return { key:'text', t:'Free text', cols:name?[name]:[] };
+  var pc = f.col!==null && f.col!==undefined ? S.profile.cols[f.col] : null;
+  if(pc && pc.uniq<=1) return { key:'const', t:'Constant columns', cols:name?[name]:[] };
+  return { key:'mixed', t:'Mixed types', cols:name?[name]:[] };
+}
+function fixSummaryLine(){
+  var on=activeFixes();
+  if(!on.length) return '';
+  var cells=0, drops=0;
+  for(var i=0;i<on.length;i++){
+    if(on[i].kind.indexOf('drop')===0) drops+=on[i].n||0;
+    else cells+=on[i].n||0;
+  }
+  return '<b>'+on.length+' fix'+(on.length===1?'':'es')+' applied.</b> '+
+    (cells?commas(cells)+' values changed. ':'')+
+    (drops?commas(drops)+' rows held out. ':'')+
+    'The original file is untouched and every fix can be switched off on the Overview tab.';
 }
 
 /* ---------------- sample data ---------------- */
@@ -4022,6 +4590,7 @@ function refreshInner(){
   renderCharts();
   updateSelChip();
   renderBanner();
+  renderFixList();
   if(S.pivotParams){
     S.pivot=buildPivot(S.pivotParams.row,S.pivotParams.col,S.pivotParams.meas,S.pivotParams.agg,S.pivotParams.grain);
   }
@@ -4050,6 +4619,8 @@ function renderBanner(){
   if(S.truncated) bits.push('<b>'+commas(S.truncated)+' rows were not read.</b> The file is larger than the '+commas(S.opt.rowLimit)+' row limit, so this is the first '+commas(S.rows.length)+' rows. Raise the limit in data settings if you need all of it.');
   if(overrideCount()) bits.push('<b>'+overrideCount()+' column'+(overrideCount()===1?'':'s')+' set by hand.</b> Automatic detection is overridden where you changed it.');
   if(S.opt.excludeOut) bits.push('<b>Outliers excluded.</b> Statistics leave out values beyond the current outlier rule.');
+  var fx=fixSummaryLine();
+  if(fx) bits.push(fx);
   if(bits.length){ tb.innerHTML='<span>'+bits.join(' ')+'</span>'; tb.style.display=''; }
   else tb.style.display='none';
 }
@@ -4149,7 +4720,7 @@ function init(){
   };
   $('kclear').onclick=function(){ lsDel(K_KEY); $('k').value=''; toast('Key forgotten'); };
   document.addEventListener('keydown',function(e){
-    if(e.key==='Escape'){ closeSettings(); closeInspector(); closeHelp(); closeData(); closeOv(); }
+    if(e.key==='Escape'){ closeSettings(); closeInspector(); closeHelp(); closeData(); closeOv(); closeFix(); }
   });
 
   $('pick').onclick=function(){ $('file').click(); };
@@ -4191,7 +4762,7 @@ function init(){
 
   $('resetf').onclick=function(){
     S.filters={}; S.rowFilter=null; S.lastGoodRows=null; updateSelChip();
-    S.view=[]; for(var k=0;k<S.rows.length;k++) S.view.push(k);
+    S.view=baseRows();
     refresh(); toast('Filters cleared');
   };
   $('newfile').onclick=function(){
@@ -4227,6 +4798,8 @@ function init(){
     renderCompare();
     toast('Comparison ready');
   };
+  $('fix-close').onclick=closeFix;
+  $('fixveil').onclick=function(e){ if(e.target===$('fixveil')) closeFix(); };
   $('datacog').onclick=openData;
   $('o-cancel').onclick=closeData;
   $('o-save').onclick=saveData;
@@ -4290,6 +4863,10 @@ window.SignalDesk={ S:S, ingest:ingest, profileView:profileView, parseCSV:parseC
   proposals:proposals, cohortCandidates:cohortCandidates, briefPayload:briefPayload, mdToHtml:mdToHtml,
   buildPivot:buildPivot, compareSegments:compareSegments, selfCheck:selfCheck, cohensD:cohensD,
   derive:derive, applyOpt:applyOpt, workspaceJSON:workspaceJSON, loadWorkspace:loadWorkspace,
+  addFix:addFix, removeFix:removeFix, rederive:rederive, candidatesFor:candidatesFor,
+  isResolvable:isResolvable, activeFixes:activeFixes, baseRows:baseRows, fixKey:fixKey,
+  flagForFix:flagForFix, renderFixList:renderFixList,
+  rawSignature:rawSignature, fixDesc:fixDesc, openFix:openFix,
   syncTheme:syncTheme, isMissing:isMissing, loadTextChunked:loadTextChunked, DEFAULT_OPT:DEFAULT_OPT,
   groupsFor:groupsFor, openInspector:openInspector, HELP:HELP };
 
