@@ -633,6 +633,11 @@ footer a:hover{color:var(--sig)}
       <div class="hint">Larger files are read up to this many rows so the page stays responsive. Set it higher if your machine can take it.</div>
     </div>
     <div class="row">
+      <label for="o-mindrv">Minimum rows per driver member</label>
+      <input type="number" id="o-mindrv" min="1" step="1">
+      <div class="hint">Members with fewer rows than this in either period are folded into Other on the Drivers tab, so a handful of rows cannot swing the ranking.</div>
+    </div>
+    <div class="row">
       <label for="o-theme">Appearance</label>
       <select id="o-theme"><option value="dark">Dark</option><option value="light">Light</option></select>
     </div>
@@ -728,7 +733,7 @@ var DEFAULT_OPT = {
   dateOrder:'auto', decimal:'auto',
   missing:'NA, N/A, n/a, null, NULL, -, --, none, None',
   outlier:'iqr', excludeOut:false, rowLimit:100000,
-  theme:'dark', palette:'default'
+  theme:'dark', palette:'default', minDriverN:5
 };
 function loadOpt(){
   var o={}, k;
@@ -760,7 +765,8 @@ function isMissing(v){
 var S = {
   name: '', headers: [], rows: [], cols: [], view: [], profile: null,
   filters: {}, corr: null, cohort: null, custom: [], charts: [],
-  opt: null, ov: [], miss: {}, truncated: 0, fixes: [], dropped: {}, droppedN: 0
+  opt: null, ov: [], miss: {}, truncated: 0, fixes: [], dropped: {}, droppedN: 0,
+  drivers: null, driverParams: null
 };
 S.opt = loadOpt();
 S.miss = missingSet();
@@ -1598,10 +1604,13 @@ function offsetUnits(a,b,grain){
 
 /* ---------------- aggregation ---------------- */
 function aggregate(dimIdx,measIdx,agg,grain,maxG){
+  return aggregateRows(S.view,dimIdx,measIdx,agg,grain,maxG);
+}
+function aggregateRows(rows,dimIdx,measIdx,agg,grain,maxG){
   var dc=S.cols[dimIdx], mc=measIdx===null?null:S.cols[measIdx];
   var map={}, keys=[], i;
-  for(i=0;i<S.view.length;i++){
-    var r=S.view[i], dv=dc.vals[r];
+  for(i=0;i<rows.length;i++){
+    var r=rows[i], dv=dc.vals[r];
     if(dv===null||dv===undefined||dv==='') continue;
     var key = dc.type==='date' ? bucket(dv,grain||'month') : String(dv);
     if(map[key]===undefined){ map[key]={s:0,n:0,k:key}; keys.push(key); }
@@ -1653,6 +1662,215 @@ function chartCard(parent,title,chips,why){
 }
 function moneyFmt(col){
   return col && col.cur ? function(v){ return '$'+fmt(v); } : (col && col.per ? function(v){ return fmt(v)+'%'; } : null);
+}
+
+/* ---- drivers ---- */
+function driverEligibleDims(){
+  var p=S.profile, out=[], i;
+  if(!p) return out;
+  for(i=0;i<p.cols.length;i++){
+    var c=p.cols[i];
+    if((c.type==='category'||c.type==='boolean') && c.uniq>=2 && c.uniq<=40) out.push(c.idx);
+    else if(c.role==='time' && c.type==='date') out.push(c.idx);
+  }
+  return out;
+}
+function driverEligibleMeas(){
+  var p=S.profile, out=[null], i;
+  if(!p) return out;
+  for(i=0;i<p.cols.length;i++){
+    var c=p.cols[i];
+    if(c.role==='measure' && c.stat) out.push(c.idx);
+  }
+  return out;
+}
+function driverCandidates(){
+  return { dims:driverEligibleDims(), meas:driverEligibleMeas() };
+}
+function groupWithRows(rows,dimIdx,measIdx,grain){
+  var dc=S.cols[dimIdx], mc=(measIdx===null||measIdx===undefined)?null:S.cols[measIdx];
+  var map={}, keys=[], i;
+  for(i=0;i<rows.length;i++){
+    var r=rows[i], dv=dc.vals[r];
+    if(dv===null||dv===undefined||dv==='') continue;
+    var key = dc.type==='date' ? String(bucket(dv,grain||'month')) : String(dv);
+    if(map[key]===undefined){ map[key]={ s:0, n:0, rows:[], k:key }; keys.push(key); }
+    var e=map[key];
+    e.n++; e.rows.push(r);
+    if(mc){ var mv=mc.vals[r]; if(mv!==null && isFinite(mv)) e.s+=mv; }
+  }
+  return { map:map, keys:keys, isDate:dc.type==='date' };
+}
+function driverLabel(dimIdx,key,grain){
+  var dc=S.cols[dimIdx];
+  return dc.type==='date' ? dateLabel(+key,grain||'month') : key;
+}
+function driverUnionKeys(gA,gB){
+  var union={}, order=[], i;
+  for(i=0;i<gA.keys.length;i++){ if(!union[gA.keys[i]]){ union[gA.keys[i]]=1; order.push(gA.keys[i]); } }
+  for(i=0;i<gB.keys.length;i++){ if(!union[gB.keys[i]]){ union[gB.keys[i]]=1; order.push(gB.keys[i]); } }
+  return order;
+}
+function driverFold(items,accBuild,accAdd){
+  var acc=accBuild(items.length);
+  for(var i=0;i<items.length;i++) accAdd(acc,items[i]);
+  return acc;
+}
+function driverSplitMin(allMembers,cap){
+  var minN=(S.opt&&S.opt.minDriverN)||0, i;
+  var elig=[], below=[];
+  for(i=0;i<allMembers.length;i++){
+    if((allMembers[i].nA+allMembers[i].nB)<minN) below.push(allMembers[i]); else elig.push(allMembers[i]);
+  }
+  return { elig:elig, below:below, lim:cap||8 };
+}
+function contribSum(rowsA,rowsB,dimIdx,measIdx,grain,cap){
+  var gA=groupWithRows(rowsA,dimIdx,measIdx,grain), gB=groupWithRows(rowsB,dimIdx,measIdx,grain);
+  function mv(e){ return e ? (measIdx===null||measIdx===undefined ? e.n : e.s) : 0; }
+  var order=driverUnionKeys(gA,gB), allMembers=[], totalA=0, totalB=0, classifiedA=0, classifiedB=0, i;
+  for(i=0;i<order.length;i++){
+    var k=order[i], ea=gA.map[k], eb=gB.map[k];
+    var sumA=mv(ea), sumB=mv(eb);
+    totalA+=sumA; totalB+=sumB;
+    classifiedA += ea?ea.n:0; classifiedB += eb?eb.n:0;
+    allMembers.push({ key:k, label:driverLabel(dimIdx,k,grain), sumA:sumA, sumB:sumB, delta:sumB-sumA,
+      nA: ea?ea.n:0, nB: eb?eb.n:0, rowsA: ea?ea.rows.slice():[], rowsB: eb?eb.rows.slice():[],
+      kind: (!ea&&eb)?'entry':((ea&&!eb)?'exit':'continuing') });
+  }
+  var sp=driverSplitMin(allMembers,cap);
+  sp.elig.sort(function(x,y){ return Math.abs(y.delta)-Math.abs(x.delta); });
+  var shown=sp.elig, overflow=[];
+  if(sp.elig.length>sp.lim){ shown=sp.elig.slice(0,sp.lim); overflow=sp.elig.slice(sp.lim); }
+  var foldedSrc=sp.below.concat(overflow), folded=null;
+  if(foldedSrc.length){
+    folded=driverFold(foldedSrc,
+      function(){ return { key:'\u0000other', label:'Other ('+foldedSrc.length+')', sumA:0, sumB:0, delta:0, nA:0, nB:0, rowsA:[], rowsB:[], kind:'other' }; },
+      function(acc,m){ acc.sumA+=m.sumA; acc.sumB+=m.sumB; acc.delta+=m.delta; acc.nA+=m.nA; acc.nB+=m.nB;
+        acc.rowsA=acc.rowsA.concat(m.rowsA); acc.rowsB=acc.rowsB.concat(m.rowsB); });
+    shown=shown.concat([folded]);
+  }
+  return { dimIdx:dimIdx, measIdx:(measIdx===undefined?null:measIdx), grain:grain||'month',
+    rowsA:rowsA.length, rowsB:rowsB.length, totalA:totalA, totalB:totalB, delta:totalB-totalA,
+    classifiedA:classifiedA, classifiedB:classifiedB,
+    members:shown, allMembers:allMembers, folded:foldedSrc.length?foldedSrc:null };
+}
+function contribRate(rowsA,rowsB,dimIdx,measIdx,grain,cap){
+  var gA=groupWithRows(rowsA,dimIdx,measIdx,grain), gB=groupWithRows(rowsB,dimIdx,measIdx,grain);
+  var i, k, NA=0, NB=0, rawA=0, rawB=0;
+  for(i=0;i<gA.keys.length;i++){ var ea0=gA.map[gA.keys[i]]; NA+=ea0.n; rawA+=ea0.s; }
+  for(i=0;i<gB.keys.length;i++){ var eb0=gB.map[gB.keys[i]]; NB+=eb0.n; rawB+=eb0.s; }
+  var meanA = NA? rawA/NA : 0, meanB = NB? rawB/NB : 0;
+  var order=driverUnionKeys(gA,gB), allMembers=[];
+  for(i=0;i<order.length;i++){
+    k=order[i];
+    var ea=gA.map[k], eb=gB.map[k];
+    var nA=ea?ea.n:0, nB=eb?eb.n:0;
+    var rateA = nA? ea.s/nA : 0, rateB = nB? eb.s/nB : 0;
+    var wA = NA? nA/NA : 0, wB = NB? nB/NB : 0;
+    var mix=(wB-wA)*rateA, rate=wA*(rateB-rateA), inter=(wB-wA)*(rateB-rateA);
+    allMembers.push({ key:k, label:driverLabel(dimIdx,k,grain), nA:nA, nB:nB, rateA:rateA, rateB:rateB,
+      wA:wA, wB:wB, mix:mix, rate:rate, interaction:inter, total:mix+rate+inter,
+      rowsA: ea?ea.rows.slice():[], rowsB: eb?eb.rows.slice():[],
+      kind: (!ea&&eb)?'entry':((ea&&!eb)?'exit':'continuing') });
+  }
+  var mixT=0, rateT=0, interT=0;
+  for(i=0;i<allMembers.length;i++){ mixT+=allMembers[i].mix; rateT+=allMembers[i].rate; interT+=allMembers[i].interaction; }
+  var sp=driverSplitMin(allMembers,cap);
+  sp.elig.sort(function(x,y){ return Math.abs(y.total)-Math.abs(x.total); });
+  var shown=sp.elig, overflow=[];
+  if(sp.elig.length>sp.lim){ shown=sp.elig.slice(0,sp.lim); overflow=sp.elig.slice(sp.lim); }
+  var foldedSrc=sp.below.concat(overflow), folded=null;
+  if(foldedSrc.length){
+    folded=driverFold(foldedSrc,
+      function(){ return { key:'\u0000other', label:'Other ('+foldedSrc.length+')', nA:0, nB:0, rateA:0, rateB:0, wA:0, wB:0, mix:0, rate:0, interaction:0, total:0, rowsA:[], rowsB:[], kind:'other' }; },
+      function(acc,m){ acc.nA+=m.nA; acc.nB+=m.nB; acc.mix+=m.mix; acc.rate+=m.rate; acc.interaction+=m.interaction; acc.total+=m.total;
+        acc.rowsA=acc.rowsA.concat(m.rowsA); acc.rowsB=acc.rowsB.concat(m.rowsB); });
+    shown=shown.concat([folded]);
+  }
+  return { dimIdx:dimIdx, measIdx:(measIdx===undefined?null:measIdx), grain:grain||'month',
+    rowsA:rowsA.length, rowsB:rowsB.length, NA:NA, NB:NB, meanA:meanA, meanB:meanB, rateDelta:meanB-meanA,
+    mix:mixT, rate:rateT, interaction:interT,
+    members:shown, allMembers:allMembers, folded:foldedSrc.length?foldedSrc:null };
+}
+function etaSquared(rows,dimIdx,measIdx){
+  var dc=S.cols[dimIdx], mc=S.cols[measIdx], groups={}, keys=[], i, r, dv, mv;
+  var grand=0, n=0;
+  for(i=0;i<rows.length;i++){
+    r=rows[i]; dv=dc.vals[r]; mv=mc.vals[r];
+    if(dv===null||dv===undefined||dv==='') continue;
+    if(mv===null||!isFinite(mv)) continue;
+    var key=String(dv);
+    if(groups[key]===undefined){ groups[key]={ sum:0, n:0 }; keys.push(key); }
+    groups[key].sum+=mv; groups[key].n++;
+    grand+=mv; n++;
+  }
+  if(n<2 || keys.length<2) return { eta2:0, n:n, k:keys.length, ssTotal:0, ssBetween:0 };
+  var gm=grand/n, ssTotal=0, ssBetween=0;
+  for(i=0;i<rows.length;i++){
+    r=rows[i]; dv=dc.vals[r]; mv=mc.vals[r];
+    if(dv===null||dv===undefined||dv==='') continue;
+    if(mv===null||!isFinite(mv)) continue;
+    ssTotal += (mv-gm)*(mv-gm);
+  }
+  for(i=0;i<keys.length;i++){
+    var g=groups[keys[i]], gmean=g.sum/g.n;
+    ssBetween += g.n*(gmean-gm)*(gmean-gm);
+  }
+  return { eta2: ssTotal>0 ? ssBetween/ssTotal : 0, n:n, k:keys.length, ssTotal:ssTotal, ssBetween:ssBetween };
+}
+function paradoxCheck(rateResult){
+  var pool=(rateResult&&rateResult.allMembers)||[], cont=[], i;
+  for(i=0;i<pool.length;i++){ if(pool[i].nA>0 && pool[i].nB>0 && pool[i].kind==='continuing') cont.push(pool[i]); }
+  if(cont.length<2) return { detected:false, reason:'fewer than two continuing members', members:cont };
+  var dir=0, unanimous=true;
+  for(i=0;i<cont.length;i++){
+    var d=cont[i].rateB-cont[i].rateA, s=d>0?1:(d<0?-1:0);
+    if(s===0) continue;
+    if(dir===0) dir=s; else if(s!==dir){ unanimous=false; break; }
+  }
+  if(dir===0 || !unanimous) return { detected:false, reason:'members do not move in one direction', members:cont };
+  var sumA=0, nA=0, sumB=0, nB=0;
+  for(i=0;i<cont.length;i++){
+    sumA+=cont[i].rateA*cont[i].nA; nA+=cont[i].nA;
+    sumB+=cont[i].rateB*cont[i].nB; nB+=cont[i].nB;
+  }
+  var pooledA = nA? sumA/nA : 0, pooledB = nB? sumB/nB : 0;
+  var pooledDir = pooledB>pooledA?1:(pooledB<pooledA?-1:0);
+  var detected = pooledDir!==0 && pooledDir!==dir;
+  return { detected:detected, direction: dir>0?'increase':'decrease',
+    pooledDirection: pooledDir>0?'increase':(pooledDir<0?'decrease':'flat'),
+    pooledA:pooledA, pooledB:pooledB, members:cont };
+}
+function explain(params){
+  var p=params||{};
+  var dimIdx=p.dimIdx, measIdx=(p.measIdx===undefined)?null:p.measIdx;
+  var agg=p.agg||'sum', grain=p.grain||'month', cap=p.cap||8;
+  var rowsA, rowsB, meta={ mode:p.mode||'selection' };
+  if(p.mode==='segment'){
+    var sd=p.segDimIdx, other=(p.segB==='\u0000other');
+    rowsA=segRows(sd,p.segA,false);
+    rowsB=other?segRows(sd,p.segA,true):segRows(sd,p.segB,false);
+    meta.aLabel=String(p.segA); meta.bLabel=other?'everything else':String(p.segB);
+  } else if(p.mode==='period'){
+    var pd=p.perDimIdx, g=p.perGrain||'month';
+    rowsA=rowsWhere(function(r){ var v=S.cols[pd].vals[r]; return v!==null && v!==undefined && String(bucket(v,g))===String(p.perA); });
+    rowsB=rowsWhere(function(r){ var v=S.cols[pd].vals[r]; return v!==null && v!==undefined && String(bucket(v,g))===String(p.perB); });
+    meta.aLabel=dateLabel(+p.perA,g); meta.bLabel=dateLabel(+p.perB,g);
+  } else {
+    var inView={}, i3;
+    for(i3=0;i3<S.view.length;i3++) inView[S.view[i3]]=1;
+    rowsB=S.view.slice();
+    rowsA=baseRows().filter(function(r){ return !inView[r]; });
+    meta.aLabel='Rest of the file'; meta.bLabel='Current selection';
+  }
+  var sum=contribSum(rowsA,rowsB,dimIdx,measIdx,grain,cap);
+  var out={ meta:meta, rowsA:rowsA, rowsB:rowsB, sum:sum, rate:null, eta:null, paradox:null };
+  if(measIdx!==null){
+    out.rate=contribRate(rowsA,rowsB,dimIdx,measIdx,grain,cap);
+    out.paradox=paradoxCheck(out.rate);
+    out.eta={ onA:etaSquared(rowsA,dimIdx,measIdx), onB:etaSquared(rowsB,dimIdx,measIdx) };
+  }
+  return out;
 }
 
 /* ---------------- telemetry ---------------- */
@@ -3306,9 +3524,12 @@ function initHelp(){
 
 /* ---------------- pivot ---------------- */
 function groupsFor(ci,grain,cap){
+  return groupsForRows(S.view,ci,grain,cap);
+}
+function groupsForRows(rows,ci,grain,cap){
   var c=S.cols[ci], map={}, keys=[], i;
-  for(i=0;i<S.view.length;i++){
-    var r=S.view[i], v=c.vals[r];
+  for(i=0;i<rows.length;i++){
+    var r=rows[i], v=c.vals[r];
     if(v===null||v===undefined||v==='') continue;
     var k = c.type==='date' ? String(bucket(v,grain||'month')) : String(v);
     if(map[k]===undefined){ map[k]={ n:0, k:k }; keys.push(k); }
@@ -3835,6 +4056,31 @@ function selfCheck(){
     add('Every pivot row lands in exactly one cell',rowsSeen+P.skipped===S.view.length,
       commas(rowsSeen)+' rows placed plus '+commas(P.skipped)+' skipped for a missing grouping field equals '+commas(S.view.length)+' in scope.');
   }
+
+  if(S.drivers){
+    var Dr=S.drivers;
+    var sdSum=0;
+    for(i=0;i<Dr.sum.allMembers.length;i++) sdSum+=Dr.sum.allMembers[i].delta;
+    add('Driver contributions sum to the total delta',near(sdSum,Dr.sum.delta,1e-9),
+      'Summed every member delta independently and got '+fmt(sdSum,4)+' against a reported total delta of '+fmt(Dr.sum.delta,4)+'.');
+
+    if(Dr.rate){
+      var mri=Dr.rate.mix+Dr.rate.rate+Dr.rate.interaction;
+      add('Mix, rate and interaction add back to the rate change',near(mri,Dr.rate.rateDelta,1e-9),
+        'Mix ('+fmt(Dr.rate.mix,4)+') plus rate ('+fmt(Dr.rate.rate,4)+') plus interaction ('+fmt(Dr.rate.interaction,4)+') gives '+fmt(mri,4)+' against a reported rate change of '+fmt(Dr.rate.rateDelta,4)+'.');
+    }
+
+    var seenA={}, seenB={}, overlapBad=0, coverA=0, coverB=0, j3, k3;
+    for(i=0;i<Dr.sum.allMembers.length;i++){
+      var mem=Dr.sum.allMembers[i];
+      for(j3=0;j3<mem.rowsA.length;j3++){ k3=mem.rowsA[j3]; if(seenA[k3]) overlapBad++; else seenA[k3]=1; coverA++; }
+      for(j3=0;j3<mem.rowsB.length;j3++){ k3=mem.rowsB[j3]; if(seenB[k3]) overlapBad++; else seenB[k3]=1; coverB++; }
+    }
+    add('Driver member rows partition each period with no overlap and no loss',
+      overlapBad===0 && coverA===Dr.sum.classifiedA && coverB===Dr.sum.classifiedB,
+      'Of '+commas(Dr.sum.rowsA)+' baseline and '+commas(Dr.sum.rowsB)+' comparison rows, '+commas(Dr.sum.classifiedA)+' and '+commas(Dr.sum.classifiedB)+
+      ' carried a value for the breakdown field, and every one of those landed in exactly one member.');
+  }
   return out;
 }
 function renderCheck(){
@@ -3877,6 +4123,7 @@ function openData(){
   $('o-out').value=S.opt.outlier;
   $('o-exout').checked=!!S.opt.excludeOut;
   $('o-limit').value=S.opt.rowLimit;
+  $('o-mindrv').value=S.opt.minDriverN;
   $('o-theme').value=S.opt.theme;
   $('o-pal').value=S.opt.palette;
   $('dataveil').classList.add('on');
@@ -3891,6 +4138,8 @@ function saveData(){
   S.opt.excludeOut=!!$('o-exout').checked;
   var lim=parseInt($('o-limit').value,10);
   S.opt.rowLimit=(isFinite(lim)&&lim>0)?lim:0;
+  var mdrv=parseInt($('o-mindrv').value,10);
+  S.opt.minDriverN=(isFinite(mdrv)&&mdrv>=1)?mdrv:DEFAULT_OPT.minDriverN;
   S.opt.theme=$('o-theme').value;
   S.opt.palette=$('o-pal').value;
   var after=[S.opt.dateOrder,S.opt.decimal,S.opt.missing,S.opt.outlier,S.opt.excludeOut].join('|');
@@ -4868,7 +5117,10 @@ window.SignalDesk={ S:S, ingest:ingest, profileView:profileView, parseCSV:parseC
   flagForFix:flagForFix, renderFixList:renderFixList,
   rawSignature:rawSignature, fixDesc:fixDesc, openFix:openFix,
   syncTheme:syncTheme, isMissing:isMissing, loadTextChunked:loadTextChunked, DEFAULT_OPT:DEFAULT_OPT,
-  groupsFor:groupsFor, openInspector:openInspector, HELP:HELP };
+  groupsFor:groupsFor, openInspector:openInspector, HELP:HELP,
+  explain:explain, contribSum:contribSum, contribRate:contribRate, etaSquared:etaSquared,
+  paradoxCheck:paradoxCheck, driverCandidates:driverCandidates,
+  aggregateRows:aggregateRows, groupsForRows:groupsForRows };
 
 })();
 </script>
