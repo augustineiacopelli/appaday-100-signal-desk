@@ -32,8 +32,23 @@ Signal Desk reads a spreadsheet the way an analyst would on first contact. It sn
 - **Charts** proposed from the shape of the data, each stating the rule that produced it, plus a builder for your own
 - **Pivot** crossing two fields with row totals, column totals and a grand total
 - **Compare** measuring every column across two segments and ranking the differences by effect size rather than raw gap
+- **Drivers** decomposing a change into the exact contribution of every group behind it, as a waterfall that closes the gap to the penny
 - **Cohorts** building a retention triangle, cumulative value per entity, average retention curve and cohort sizes from any repeating entity plus a date
 - **Briefing** written by Claude from the computed profile only
+
+### Explaining a change
+
+Every other tab tells you what a number is. The Drivers tab tells you where a change in it came from. Choose two sides to compare, choose a field to split by, and the change is decomposed into the exact contribution of each group.
+
+Three comparisons are supported. **Selection against the rest** explains what your current filters have done to the file. **One group against another** explains the gap between two segments, either head to head or against everything else. **One period against another** explains movement between two dates at month, week or year grain.
+
+For totals and counts the decomposition is a plain sum: each group's contribution is its own change, and every contribution adds back to the headline change exactly. For averages the change is split three ways, into **mix** for the part that comes from group sizes shifting, **rate** for the part that comes from the groups themselves moving, and **interaction** for the corner where both happened at once. Mix plus rate plus interaction equals the change in the average exactly, and both identities are asserted by the verifier rather than assumed.
+
+Groups that exist on only one side are labelled as new or gone rather than silently folded away. The eight largest movers get their own bar and everything else, including any group below the minimum group size set in data settings, folds into a single Other bar that still carries its rows.
+
+Two things are surfaced that a raw ranking would hide. A reversal detector flags the case where every group moved one way while the pooled average moved the other, which is Simpson's paradox and the point at which the headline figure stops meaning what it looks like it means. And a ranking of every eligible field by the share of the measure's variation it accounts for, so you can see whether the field you chose to split by is actually the one doing the explaining, and switch to a better one with a tap.
+
+The guide states plainly, and the inspector repeats on every drill-down, that contribution is arithmetic attribution and not causation. It says where a change sits, never what caused it.
 
 ### Resolving problems
 
@@ -49,7 +64,7 @@ Every statistic, bar, point, cell and tile opens an inspector showing how the nu
 
 ### Verification
 
-A **Verify this analysis** button runs up to eighteen reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, confirms cohort and pivot totals reconcile three separate ways, and proves the source file is untouched by any fix.
+A **Verify this analysis** button runs up to eighteen reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, confirms cohort and pivot totals reconcile three separate ways, confirms driver contributions sum to the total change and that mix, rate and interaction add back to the change in the average, confirms every row lands in exactly one driver group with no overlap and no loss, and proves the source file is untouched by any fix.
 
 ### Control
 
@@ -73,7 +88,7 @@ Large files parse in chunks with a progress bar and an adjustable row limit, wid
 3. Tap any number that looks surprising
 4. Press Verify this analysis before you act on anything
 
-A built-in guide behind the `?` icon covers 54 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
+A built-in guide behind the `?` icon covers 66 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
 
 ## AI briefing
 
@@ -81,9 +96,9 @@ The Briefing tab calls the Anthropic API directly from the browser using your ow
 
 ## Build notes
 
-Single file, vanilla HTML, CSS and JavaScript. No frameworks, no build step, no dependencies beyond Google Fonts. All charts are drawn on hand-rolled canvas: line, bar, histogram, scatter with an OLS fit, diverging heatmap and radial gauge, all with hit-test regions so every element is clickable. Scales from a 375px phone to desktop.
+Single file, vanilla HTML, CSS and JavaScript. No frameworks, no build step, no dependencies beyond Google Fonts. All charts are drawn on hand-rolled canvas: line, bar, histogram, scatter with an OLS fit, diverging heatmap, radial gauge and a stepped waterfall, all with hit-test regions so every element is clickable. Scales from a 375px phone to desktop.
 
-Validated with 557 automated tests across seven suites covering parsing, statistics, cohorts, the inspector, the guide, pivot and comparison arithmetic, the verifier, settings and workspace round-trips, and the remediation layer, plus canvas instrumentation confirming no non-finite geometry across roughly twelve thousand draw calls at both phone and desktop widths.
+Validated with automated suites covering parsing, statistics, cohorts, the inspector, the guide, pivot and comparison arithmetic, the verifier, settings and workspace round-trips, the remediation layer, and the driver decomposition against hand-computed fixtures and a constructed Simpson's paradox dataset. The drivers surface adds a headless DOM harness of 144 checks over the pane, the builder, the waterfall hit regions, the three comparison modes and the guard rails, run alongside real-browser passes at 375px and desktop confirming no page errors, no horizontal scroll and a clean verifier. Canvas instrumentation confirms no non-finite geometry across roughly twelve thousand draw calls at both widths.
 
 ## Credits
 
