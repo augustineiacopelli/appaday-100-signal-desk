@@ -411,6 +411,7 @@ footer a:hover{color:var(--sig)}
     <button class="tab" data-pane="charts" role="tab">Charts</button>
     <button class="tab" data-pane="pivot" role="tab">Pivot</button>
     <button class="tab" data-pane="compare" role="tab">Compare</button>
+    <button class="tab" data-pane="drivers" role="tab">Drivers</button>
     <button class="tab" data-pane="cohort" role="tab">Cohorts <span class="dot" id="cohdot"></span></button>
     <button class="tab" data-pane="brief" role="tab">Briefing</button>
   </nav>
@@ -519,6 +520,35 @@ footer a:hover{color:var(--sig)}
       </div>
     </div>
     <div id="cmpout" style="margin-top:12px"></div>
+  </div>
+
+  <div class="pane" id="pane-drivers">
+    <div class="tip"><span><b>Drivers break a change into pieces.</b> Pick a measure and a field to split it by, and the app shows exactly how much each group added to the change or took away from it. Every bar and every row is tappable.</span><button class="tip-x" aria-label="Hide tips">&#215;</button></div>
+    <div class="card">
+      <p class="eyebrow">Explain a change</p>
+      <div class="builder">
+        <div><label class="eyebrow" for="d-mode">What to compare</label>
+          <select id="d-mode"><option value="selection">Selection against the rest</option><option value="segment">One group against another</option><option value="period">One period against another</option></select></div>
+        <div><label class="eyebrow" for="d-meas">Measure</label><select id="d-meas"></select></div>
+        <div><label class="eyebrow" for="d-agg">Aggregate</label>
+          <select id="d-agg"><option value="sum">Total</option><option value="avg">Average</option><option value="count">Count</option></select></div>
+        <div><label class="eyebrow" for="d-dim">Split by</label><select id="d-dim"></select></div>
+        <div><label class="eyebrow" for="d-grain">Date grain</label>
+          <select id="d-grain"><option value="month">Month</option><option value="week">Week</option><option value="year">Year</option></select></div>
+        <div><button class="btn pri" id="d-run">Explain</button></div>
+      </div>
+      <div class="builder" id="d-seg" style="margin-top:9px;display:none">
+        <div><label class="eyebrow" for="d-sdim">Group field</label><select id="d-sdim"></select></div>
+        <div><label class="eyebrow" for="d-a">Group A</label><select id="d-a"></select></div>
+        <div><label class="eyebrow" for="d-b">Group B</label><select id="d-b"></select></div>
+      </div>
+      <div class="builder" id="d-per" style="margin-top:9px;display:none">
+        <div><label class="eyebrow" for="d-pdim">Date field</label><select id="d-pdim"></select></div>
+        <div><label class="eyebrow" for="d-pa">Earlier period</label><select id="d-pa"></select></div>
+        <div><label class="eyebrow" for="d-pb">Later period</label><select id="d-pb"></select></div>
+      </div>
+    </div>
+    <div id="drvout" style="margin-top:12px"></div>
   </div>
 
   <div class="pane" id="pane-cohort">
@@ -1569,6 +1599,52 @@ function drawGauge(cv,score,grade,pick){
   if(pick){ addHit(cv,0,0,112,112,'quality'); bindHits(cv,pick); }
 }
 
+function drawWaterfall(cv,data,pick){
+  var W=cv.parentNode.clientWidth||320, H=(data&&data.h)||290;
+  var ctx=setup(cv,W,H); if(!ctx) return;
+  var steps=(data&&data.steps)||[], n=steps.length;
+  if(!n){ noData(ctx,W,H); return; }
+  var run=0, lo=0, hi=0, pos=[], i, st, p;
+  for(i=0;i<n;i++){
+    st=steps[i];
+    if(st.kind==='total'){ pos.push({ a:0, b:st.value }); run=st.value; }
+    else { pos.push({ a:run, b:run+st.value }); run+=st.value; }
+    p=pos[i];
+    if(p.a<lo) lo=p.a; if(p.b<lo) lo=p.b;
+    if(p.a>hi) hi=p.a; if(p.b>hi) hi=p.b;
+  }
+  var pad={l:58,r:12,t:14,b:54};
+  var ys=yScale(lo,hi===lo?lo+1:hi,pad,H);
+  axesFrame(ctx,W,H,pad,ys,data.yfmt);
+  var iw=(W-pad.l-pad.r)/n, bw=Math.max(3,Math.min(46,iw*0.62));
+  for(i=0;i<n;i++){
+    st=steps[i]; p=pos[i];
+    var y1=ys.y(p.a), y2=ys.y(p.b);
+    var top=Math.min(y1,y2), hgt=Math.max(1.5,Math.abs(y2-y1));
+    var cx=pad.l+iw*(i+0.5);
+    ctx.fillStyle = st.kind==='total' ? 'rgba(126,143,163,.62)'
+      : (st.value>=0 ? 'rgba(86,217,138,.85)' : 'rgba(255,95,109,.85)');
+    rrect(ctx,cx-bw/2,top,bw,hgt,3); ctx.fill();
+    if(i<n-1){
+      ctx.strokeStyle=CSS.line; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+      ctx.beginPath();
+      ctx.moveTo(cx+bw/2,Math.round(y2)+.5);
+      ctx.lineTo(pad.l+iw*(i+1.5)-bw/2,Math.round(y2)+.5);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    addHit(cv,pad.l+iw*i,pad.t,iw,H-pad.b-pad.t,i);
+  }
+  if(pick) bindHits(cv,pick);
+  ctx.save();
+  ctx.font='10px '+MONO; ctx.fillStyle=CSS.dim; ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(i=0;i<n;i++){
+    var lx=pad.l+iw*(i+0.5);
+    ctx.save(); ctx.translate(lx,H-pad.b+8); ctx.rotate(-Math.PI/4);
+    ctx.fillText(ellip(ctx,steps[i].label,88),0,0); ctx.restore();
+  }
+  ctx.restore();
+}
+
 function noData(ctx,W,H){
   ctx.font='11px '+MONO; ctx.fillStyle=CSS.faint;
   ctx.textAlign='center'; ctx.textBaseline='middle';
@@ -2364,6 +2440,7 @@ function refreshBuilder(){
   }
   fillSelect($('m-dim'),splits);
   refreshSegments();
+  refreshDriverBuilder();
 }
 function refreshSegments(){
   var di=parseInt($('m-dim').value,10);
@@ -3435,6 +3512,17 @@ var HELP=[
    a:'Press Save setup to download a small JSON file holding your filters, column overrides, pivot, comparison, cohort choice and settings. Next month, load the new data file, press Load setup, and the same analysis rebuilds itself. It refuses to load if the columns do not match.' },
  { c:'Settings', q:'My file is enormous.',
    a:'Large files are read in chunks with a progress bar so the tab stays responsive, and only the first hundred thousand rows are analysed by default. A banner tells you when rows were left out and the limit is adjustable in data settings.' },
+ { c:'Drivers', q:'What is the Drivers tab for?',
+   a:'Every other tab tells you what a number is. This one tells you where a change in that number came from. Choose two sides to compare, choose a field to split by, and the app works out how much each group of that field added to the change or took away from it. The pieces add back to the total exactly, so nothing is hidden in a rounding gap.' },
+ { c:'Drivers', q:'How do I read the waterfall?',
+   a:'The grey bar on the left is the total on the baseline side and the grey bar on the right is the total on the comparison side. Each bar between them is one group, stepping the figure up in green or down in red until the two totals meet. Only the eight largest movers get their own bar and everything else is folded into a single Other bar, along with any group smaller than the minimum group size set in data settings.' },
+ { c:'Drivers', q:'What are mix, rate and interaction?',
+   a:'When you explain a change in an average rather than a total, a group can move the headline in two different ways. Mix is the part that comes from the group getting bigger or smaller as a share of the file while its own average stays put. Rate is the part that comes from its own average moving while its share stays put. Interaction is the corner where both moved at once. The three add to the change in the average exactly.' },
+ { c:'Drivers', q:'It said every group moved one way but the average moved the other.',
+   a:'That is a genuine reversal, usually called Simpson\u2019s paradox, and the app calls it out rather than letting you walk into it. It happens when the groups that grew have permanently different levels from the ones that shrank. Each group can improve while the overall average falls, simply because more of the file now sits in the lower group. When that warning appears, quote the group figures rather than the headline.' },
+ { c:'Drivers', q:'Does a big contribution mean that group caused the change?',
+   a:'No. Contribution is arithmetic attribution, not causation. It tells you where the change sits in your data, not why it happened. A group can carry most of the change because it is simply the largest, or because something else moved underneath it that this field cannot see. Treat the ranking as a place to start asking questions, never as an answer to them.' },
+
  { c:'AI', q:'What is sent to Claude?',
    a:'Only the computed profile: column names, types, statistics, quality flags, correlation figures and the cohort curves. Your rows are never sent. That is deliberate, so the statistics are computed here and the model only narrates them.' },
  { c:'AI', q:'Where do I get an API key?',
@@ -3880,6 +3968,306 @@ function insFinding(C,f){
         '<b>'+commas(f.cb)+'</b> of '+commas(C.rowsB.length)+' rows in <b>'+esc(C.bLabel)+'</b> carry it, a share of <code>'+pct(f.b,1)+'</code>.',
         'The gap is <b>'+fmt((f.a-f.b)*100,1)+' percentage points</b>.'],
       focus:f.col, rows:rows });
+  }
+}
+
+/* ---------------- drivers surface ---------------- */
+function driverModeSync(){
+  var m=$('d-mode').value;
+  $('d-seg').style.display = m==='segment' ? '' : 'none';
+  $('d-per').style.display = m==='period' ? '' : 'none';
+}
+function refreshDriverSegs(){
+  var a=$('d-a'), b=$('d-b');
+  clear(a); clear(b);
+  var di=parseInt($('d-sdim').value,10);
+  if(isNaN(di)||!S.profile||!S.profile.cols[di]) return;
+  var pc=S.profile.cols[di], vals=(pc.all||pc.top||[]).slice(0,40), i, o;
+  o=document.createElement('option'); o.value='\u0000other'; o.textContent='Everything else';
+  b.appendChild(o);
+  for(i=0;i<vals.length;i++){
+    o=document.createElement('option'); o.value=vals[i].v; o.textContent=vals[i].v+' ('+commas(vals[i].c)+')'; a.appendChild(o);
+    o=document.createElement('option'); o.value=vals[i].v; o.textContent=vals[i].v+' ('+commas(vals[i].c)+')'; b.appendChild(o);
+  }
+  if(vals.length>1) b.value=vals[1].v;
+}
+function driverPeriods(){
+  var di=parseInt($('d-pdim').value,10);
+  if(isNaN(di)||!S.cols[di]) return [];
+  var g=$('d-grain').value||'month', c=S.cols[di], seen={}, out=[], i, v, k;
+  for(i=0;i<S.view.length;i++){
+    v=c.vals[S.view[i]];
+    if(v===null||v===undefined||v==='') continue;
+    k=bucket(v,g);
+    if(!seen[k]){ seen[k]=1; out.push(k); }
+  }
+  out.sort(function(x,y){ return x-y; });
+  return out.length>400 ? out.slice(out.length-400) : out;
+}
+function refreshDriverPeriods(){
+  var a=$('d-pa'), b=$('d-pb');
+  clear(a); clear(b);
+  var ps=driverPeriods(), g=$('d-grain').value||'month', i, o;
+  for(i=0;i<ps.length;i++){
+    o=document.createElement('option'); o.value=String(ps[i]); o.textContent=dateLabel(ps[i],g); a.appendChild(o);
+    o=document.createElement('option'); o.value=String(ps[i]); o.textContent=dateLabel(ps[i],g); b.appendChild(o);
+  }
+  if(ps.length>1){ a.value=String(ps[ps.length-2]); b.value=String(ps[ps.length-1]); }
+}
+function refreshDriverBuilder(){
+  var p=S.profile;
+  if(!p||!$('d-dim')) return;
+  var cand=driverCandidates(), dims=[], meas=[{ name:'Count of rows', idx:-1 }], i, c;
+  for(i=0;i<cand.dims.length;i++){ c=p.cols[cand.dims[i]]; if(c && !c.excluded) dims.push(c); }
+  for(i=0;i<cand.meas.length;i++){
+    if(cand.meas[i]===null) continue;
+    c=p.cols[cand.meas[i]];
+    if(c && !c.excluded) meas.push(c);
+  }
+  fillSelect($('d-dim'),dims);
+  for(i=0;i<dims.length;i++){ if(dims[i].type!=='date'){ $('d-dim').value=String(dims[i].idx); break; } }
+  fillSelect($('d-meas'),meas);
+  if(meas.length>1) $('d-meas').value=String(meas[1].idx);
+  var segs=[], dates=[];
+  for(i=0;i<p.cols.length;i++){
+    c=p.cols[i];
+    if(c.excluded) continue;
+    if((c.type==='category'||c.type==='boolean') && c.uniq>=2 && c.uniq<=40) segs.push(c);
+    if(c.type==='date') dates.push(c);
+  }
+  fillSelect($('d-sdim'),segs);
+  fillSelect($('d-pdim'),dates);
+  var sdv=parseInt($('d-sdim').value,10), curd=parseInt($('d-dim').value,10);
+  if(!isNaN(sdv) && curd===sdv){
+    for(i=0;i<dims.length;i++){
+      if(dims[i].idx!==sdv && dims[i].type!=='date'){ $('d-dim').value=String(dims[i].idx); break; }
+    }
+  }
+  refreshDriverSegs();
+  refreshDriverPeriods();
+  driverModeSync();
+}
+function syncDriverSelects(){
+  var P=S.driverParams;
+  if(!P) return;
+  $('d-mode').value=P.mode||'selection';
+  $('d-dim').value=String(P.dimIdx);
+  $('d-meas').value=String(P.measIdx===null||P.measIdx===undefined?-1:P.measIdx);
+  $('d-agg').value=P.agg||'sum';
+  $('d-grain').value=P.grain||'month';
+  if(P.mode==='segment'){
+    $('d-sdim').value=String(P.segDimIdx);
+    refreshDriverSegs();
+    $('d-a').value=P.segA; $('d-b').value=P.segB;
+  } else if(P.mode==='period'){
+    $('d-pdim').value=String(P.perDimIdx);
+    refreshDriverPeriods();
+    $('d-pa').value=String(P.perA); $('d-pb').value=String(P.perB);
+  }
+  driverModeSync();
+}
+function driverFmt(){
+  var P=S.driverParams;
+  var mi=P?P.measIdx:null;
+  var col=(mi===null||mi===undefined)?null:S.profile.cols[mi];
+  var mf=moneyFmt(col);
+  return function(v){ return mf?mf(v):fmt(v); };
+}
+function signedBy(f,v){ return (v>=0?'+':'-')+f(Math.abs(v)); }
+function driverRun(){
+  if(!S.profile){ toast('Load data first.'); return; }
+  var mode=$('d-mode').value;
+  var di=parseInt($('d-dim').value,10), mi=parseInt($('d-meas').value,10);
+  var ag=$('d-agg').value, gr=$('d-grain').value;
+  if(isNaN(di)){ toast('This dataset has no field to split a change by.'); return; }
+  if(ag!=='count' && (isNaN(mi)||mi===-1)){ toast('Pick a measure, or switch the aggregate to Count.'); return; }
+  var params={ mode:mode, dimIdx:di, measIdx:(ag==='count'||isNaN(mi)||mi===-1)?null:mi,
+    agg:ag, grain:gr, cap:8 };
+  if(mode==='segment'){
+    var sd=parseInt($('d-sdim').value,10);
+    if(isNaN(sd)){ toast('This dataset has no field with a small set of groups.'); return; }
+    if($('d-a').value===$('d-b').value){ toast('Pick two different groups.'); return; }
+    if(sd===di){ toast('Split by a different field from the one defining the two groups.'); return; }
+    params.segDimIdx=sd; params.segA=$('d-a').value; params.segB=$('d-b').value;
+  } else if(mode==='period'){
+    var pd=parseInt($('d-pdim').value,10);
+    if(isNaN(pd)){ toast('This dataset has no usable date column.'); return; }
+    if($('d-pa').value===$('d-pb').value){ toast('Pick two different periods.'); return; }
+    if(pd===di){ toast('Split by a different field from the one defining the two periods.'); return; }
+    params.perDimIdx=pd; params.perGrain=gr;
+    params.perA=$('d-pa').value; params.perB=$('d-pb').value;
+  }
+  S.driverParams=params;
+  S.drivers=explain(params);
+  renderDrivers();
+  toast('Change explained');
+}
+function insDriverRows(D,label,rows,side){
+  openInspector({ sub:'Driver side', title:label, name:'drivers-'+side,
+    how:['The <b>'+commas(rows.length)+'</b> rows on the '+esc(side==='a'?'baseline':'comparison')+' side of this comparison.'],
+    focus:S.driverParams?S.driverParams.dimIdx:-1, rows:rows });
+}
+function insDriverMember(m){
+  var D=S.drivers, P=S.driverParams;
+  if(!D||!P) return;
+  var f=driverFmt(), useRate=(P.agg==='avg' && D.rate);
+  var dimName=S.profile.cols[P.dimIdx].name;
+  var how=[];
+  how.push('<b>'+esc(String(m.label))+'</b> is one value of <b>'+esc(dimName)+'</b>. It covers '+commas(m.rowsA.length)+
+    ' rows in <b>'+esc(D.meta.aLabel)+'</b> and '+commas(m.rowsB.length)+' in <b>'+esc(D.meta.bLabel)+'</b>.');
+  if(!useRate){
+    how.push('It carries <code>'+f(m.sumA)+'</code> on the baseline side and <code>'+f(m.sumB)+'</code> on the comparison side, so its own change is <code>'+signedBy(f,m.delta)+'</code>.');
+    how.push('The whole change is <code>'+signedBy(f,D.sum.delta)+'</code>, so this group accounts for '+
+      (D.sum.delta!==0 ? '<b>'+pct(m.delta/D.sum.delta,1)+'</b>' : 'an undefined share')+' of it. Contributions across every group add back to that total exactly.');
+  } else {
+    how.push('Its share of the rows moved from <code>'+pct(m.wA,1)+'</code> to <code>'+pct(m.wB,1)+'</code>, and its own average moved from <code>'+f(m.rateA)+'</code> to <code>'+f(m.rateB)+'</code>.');
+    how.push('Mix, the part that comes from the share changing while the group average is held at its old level, is <code>'+signedBy(f,m.mix)+'</code>.');
+    how.push('Rate, the part that comes from the group average changing while its share is held at its old level, is <code>'+signedBy(f,m.rate)+'</code>. Interaction, the corner where both moved at once, is <code>'+signedBy(f,m.interaction)+'</code>.');
+    how.push('Together they give <code>'+signedBy(f,m.total)+'</code>, and every group summed gives the overall change of <code>'+signedBy(f,D.rate.rateDelta)+'</code>.');
+  }
+  if(m.kind==='entry') how.push('This group appears only on the comparison side. Its whole figure is new, which is why it reads as a pure addition.');
+  else if(m.kind==='exit') how.push('This group appears only on the baseline side. It went away entirely, which is why it reads as a pure subtraction.');
+  else if(m.kind==='other') how.push('This bar folds together every remaining group, including any that fell below the minimum group size set in data settings.');
+  how.push('This is arithmetic attribution, not causation. It says where the change sits, not what caused it. A group can look responsible simply because something else moved underneath it.');
+  openInspector({ sub:'Driver', title:String(m.label)+' \u00B7 '+dimName, name:'driver-'+m.label,
+    how:how, focus:P.dimIdx, rows:m.rowsA.concat(m.rowsB) });
+}
+function driverRank(){
+  var D=S.drivers, P=S.driverParams, out=[];
+  if(!D||!P||P.measIdx===null||P.measIdx===undefined) return out;
+  var cand=driverCandidates(), i, ci, c, e;
+  for(i=0;i<cand.dims.length;i++){
+    ci=cand.dims[i]; c=S.profile.cols[ci];
+    if(!c||c.excluded||c.type==='date') continue;
+    e=etaSquared(D.rowsB,ci,P.measIdx);
+    if(e.k>=2) out.push({ idx:ci, name:c.name, eta:e.eta2, k:e.k, n:e.n });
+  }
+  out.sort(function(x,y){ return y.eta-x.eta; });
+  return out;
+}
+function renderDrivers(){
+  var box=$('drvout');
+  if(!box) return;
+  clear(box);
+  var D=S.drivers, P=S.driverParams;
+  if(!D||!P){
+    box.appendChild(el('div','empty','Pick what to compare and what to split it by, then press Explain.'));
+    return;
+  }
+  var f=driverFmt(), sum=D.sum, rate=D.rate, useRate=(P.agg==='avg' && rate), i;
+  var dimName=S.profile.cols[P.dimIdx].name;
+  var kpi=el('div','stats');
+  addStat(kpi,D.meta.aLabel, useRate?f(rate.meanA):f(sum.totalA), function(){ insDriverRows(D,D.meta.aLabel,D.rowsA,'a'); });
+  addStat(kpi,D.meta.bLabel, useRate?f(rate.meanB):f(sum.totalB), function(){ insDriverRows(D,D.meta.bLabel,D.rowsB,'b'); });
+  addStat(kpi,'Change', signedBy(f, useRate?rate.rateDelta:sum.delta));
+  addStat(kpi,'Groups in '+dimName, commas(sum.allMembers.length));
+  box.appendChild(kpi);
+  if(!D.rowsA.length || !D.rowsB.length){
+    var nb=el('div','banner'); nb.style.marginTop='12px';
+    nb.innerHTML='<span><b>One side of this comparison is empty.</b> Every group reads as new or gone, so what follows is a listing rather than an explanation. In selection mode this happens when no filter is applied, because there is nothing left over to compare against.</span>';
+    box.appendChild(nb);
+  }
+  if(D.paradox && D.paradox.detected){
+    var pb=el('div','banner'); pb.style.marginTop='12px';
+    pb.innerHTML='<span><b>Every group moved one way and the overall average moved the other.</b> Each group that appears on both sides shows a '+esc(D.paradox.direction)+
+      ', yet the pooled average shows a '+esc(D.paradox.pooledDirection)+'. The mix underneath changed, so the headline figure is being carried by which groups grew rather than by any group getting better or worse.</span>';
+    box.appendChild(pb);
+  }
+  var mem = useRate ? rate.members : sum.members;
+  var steps=[{ label:D.meta.aLabel, value: useRate?rate.meanA:sum.totalA, kind:'total' }];
+  for(i=0;i<mem.length;i++){
+    steps.push({ label:String(mem[i].label), value: useRate?mem[i].total:mem[i].delta, kind:'delta', m:mem[i] });
+  }
+  steps.push({ label:D.meta.bLabel, value: useRate?rate.meanB:sum.totalB, kind:'total' });
+  var card=el('div','card'); card.style.marginTop='12px';
+  card.appendChild(el('p','eyebrow','Where the change came from'));
+  var wrap=el('div','cvwrap'), cv=document.createElement('canvas');
+  wrap.appendChild(cv); card.appendChild(wrap);
+  var why=el('div','why');
+  why.innerHTML='<b>Reading it:</b> the two grey bars are the totals either side of the comparison and everything between them is one value of '+esc(dimName)+
+    '. Green pushes the figure up, red pulls it down, and the steps close the gap exactly. Tap any bar for the arithmetic and the rows behind it.';
+  card.appendChild(why);
+  box.appendChild(card);
+  reg(cv,function(){
+    drawWaterfall(cv,{ steps:steps, h:290, yfmt:f },function(ix){
+      var st=steps[ix];
+      if(!st) return;
+      if(st.kind==='total'){
+        if(ix===0) insDriverRows(D,D.meta.aLabel,D.rowsA,'a');
+        else insDriverRows(D,D.meta.bLabel,D.rowsB,'b');
+        return;
+      }
+      insDriverMember(st.m);
+    });
+  });
+  var card2=el('div','card'); card2.style.marginTop='12px';
+  card2.appendChild(el('p','eyebrow','Group by group'));
+  var t=el('table'), th=el('thead'), tr=el('tr');
+  var heads = useRate ? [dimName,'Mix','Rate','Interaction','Total effect']
+                      : [dimName,String(D.meta.aLabel),String(D.meta.bLabel),'Contribution','Share of change'];
+  for(i=0;i<heads.length;i++) tr.appendChild(el('th',null,String(heads[i]).slice(0,22)));
+  th.appendChild(tr); t.appendChild(th);
+  var tb=el('tbody');
+  var pool = useRate ? rate.members : sum.members;
+  for(i=0;i<pool.length;i++){
+    (function(m){
+      var row=el('tr','tap');
+      row.onclick=function(){ insDriverMember(m); };
+      var name=String(m.label)+(m.kind==='entry'?' (new)':(m.kind==='exit'?' (gone)':''));
+      row.appendChild(el('td',null,name));
+      if(useRate){
+        row.appendChild(el('td','num',signedBy(f,m.mix)));
+        row.appendChild(el('td','num',signedBy(f,m.rate)));
+        row.appendChild(el('td','num',signedBy(f,m.interaction)));
+        row.appendChild(el('td','num',signedBy(f,m.total)));
+      } else {
+        row.appendChild(el('td','num',f(m.sumA)));
+        row.appendChild(el('td','num',f(m.sumB)));
+        row.appendChild(el('td','num',signedBy(f,m.delta)));
+        row.appendChild(el('td','num',sum.delta!==0?pct(m.delta/sum.delta,1):'--'));
+      }
+      tb.appendChild(row);
+    })(pool[i]);
+  }
+  t.appendChild(tb);
+  var tw=el('div','tblwrap'); tw.appendChild(t); card2.appendChild(tw);
+  if(useRate){
+    var w2=el('div','why');
+    w2.innerHTML='<b>Reading it:</b> mix is the part that comes from group sizes shifting, rate is the part that comes from groups themselves moving, and interaction is the corner where both happened at once. The three add to the change in the average exactly.';
+    card2.appendChild(w2);
+  }
+  box.appendChild(card2);
+  var ranks=driverRank();
+  if(ranks.length>1){
+    var card3=el('div','card'); card3.style.marginTop='12px';
+    card3.appendChild(el('p','eyebrow','Which field explains this measure best'));
+    var t3=el('table'), th3=el('thead'), tr3=el('tr');
+    ['Field','Groups','Rows','Variation explained'].forEach(function(x){ tr3.appendChild(el('th',null,x)); });
+    th3.appendChild(tr3); t3.appendChild(th3);
+    var tb3=el('tbody');
+    for(i=0;i<ranks.length && i<12;i++){
+      (function(rk){
+        var row=el('tr','tap');
+        row.onclick=function(){
+          S.driverParams.dimIdx=rk.idx;
+          S.drivers=explain(S.driverParams);
+          syncDriverSelects();
+          renderDrivers();
+          toast('Split by '+rk.name);
+        };
+        row.appendChild(el('td',null,rk.name));
+        row.appendChild(el('td','num',commas(rk.k)));
+        row.appendChild(el('td','num',commas(rk.n)));
+        row.appendChild(el('td','num',pct(rk.eta,1)));
+        tb3.appendChild(row);
+      })(ranks[i]);
+    }
+    t3.appendChild(tb3);
+    var tw3=el('div','tblwrap'); tw3.appendChild(t3); card3.appendChild(tw3);
+    var w3=el('div','why');
+    w3.innerHTML='<b>Reading it:</b> this is the share of the measure\'s variation on the comparison side that knowing the field accounts for. A high figure means the groups really are different from one another. Tap a row to split the change by that field instead.';
+    card3.appendChild(w3);
+    box.appendChild(card3);
   }
 }
 
@@ -4851,6 +5239,18 @@ function refreshInner(){
     else { S.compare=null; S.compareParams=null; }
   }
   renderCompare();
+  if(S.driverParams){
+    var dp=S.driverParams, okd=true;
+    if(dp.mode==='segment'){
+      var dpc=S.profile.cols[dp.segDimIdx];
+      var dlive=(dpc&&dpc.all)?dpc.all.map(function(o){ return o.v; }):[];
+      if(dlive.indexOf(dp.segA)<0) okd=false;
+    }
+    if(okd){ try{ S.drivers=explain(dp); }catch(e2){ okd=false; } }
+    if(okd) syncDriverSelects();
+    else { S.drivers=null; S.driverParams=null; }
+  }
+  renderDrivers();
   var ok=renderCohortControls();
   if(ok && S.cohortParams){
     $('c-id').value=String(S.cohortParams.id);
@@ -4885,6 +5285,7 @@ function loadTable(table,delim,name){
 }
 function finishLoad(name){
   S.cohortParams=null; S.cohort=null; S.brief='';
+  S.driverParams=null; S.drivers=null;
   $('fname').textContent=name+' \u00B7 '+commas(S.rows.length)+' rows \u00B7 '+S.cols.length+' cols';
   $('stage-load').classList.remove('on');
   $('stage-work').classList.add('on');
@@ -5027,6 +5428,11 @@ function init(){
   };
   $('b-add').onclick=addCustom;
   $('m-dim').onchange=refreshSegments;
+  $('d-mode').onchange=driverModeSync;
+  $('d-sdim').onchange=refreshDriverSegs;
+  $('d-pdim').onchange=refreshDriverPeriods;
+  $('d-grain').onchange=refreshDriverPeriods;
+  $('d-run').onclick=driverRun;
   $('p-run').onclick=function(){
     var rw=parseInt($('p-row').value,10), cl=parseInt($('p-col').value,10);
     var mv=parseInt($('p-meas').value,10), ag=$('p-agg').value, gr=$('p-grain').value;
@@ -5120,7 +5526,9 @@ window.SignalDesk={ S:S, ingest:ingest, profileView:profileView, parseCSV:parseC
   groupsFor:groupsFor, openInspector:openInspector, HELP:HELP,
   explain:explain, contribSum:contribSum, contribRate:contribRate, etaSquared:etaSquared,
   paradoxCheck:paradoxCheck, driverCandidates:driverCandidates,
-  aggregateRows:aggregateRows, groupsForRows:groupsForRows };
+  aggregateRows:aggregateRows, groupsForRows:groupsForRows,
+  renderDrivers:renderDrivers, refreshDriverBuilder:refreshDriverBuilder, drawWaterfall:drawWaterfall,
+  driverRun:driverRun, driverRank:driverRank, driverPeriods:driverPeriods };
 
 })();
 </script>
