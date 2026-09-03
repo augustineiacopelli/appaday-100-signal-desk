@@ -33,6 +33,7 @@ Signal Desk reads a spreadsheet the way an analyst would on first contact. It sn
 - **Pivot** crossing two fields with row totals, column totals and a grand total
 - **Compare** measuring every column across two segments and ranking the differences by effect size rather than raw gap
 - **Drivers** decomposing a change into the exact contribution of every group behind it, as a waterfall that closes the gap to the penny
+- **Forecast** projecting a series forward with seven standard methods, the choice between them settled by backtest rather than assertion
 - **Cohorts** building a retention triangle, cumulative value per entity, average retention curve and cohort sizes from any repeating entity plus a date
 - **Briefing** written by Claude from the computed profile only
 
@@ -50,6 +51,18 @@ Two things are surfaced that a raw ranking would hide. A reversal detector flags
 
 The guide states plainly, and the inspector repeats on every drill-down, that contribution is arithmetic attribution and not causation. It says where a change sits, never what caused it.
 
+### Projecting a series forward
+
+The Forecast tab buckets the rows in scope into an evenly spaced series and fits seven standard methods to it: **naive**, **seasonal naive**, a **moving average**, a least squares **linear trend**, and the exponential smoothing family of **simple exponential smoothing**, **Holt's linear trend** and **additive Holt-Winters**. Smoothing parameters are fitted by grid search against squared error rather than guessed.
+
+The methods are not simply offered side by side. The most recent stretch of history is held back, every method is fitted on what remains and asked to forecast the hidden periods blind, and the results are scored by MAE, RMSE and MAPE. The method that actually performed is the one used to project forward, and the full scoreboard is shown rather than just the winner. Naive is in the set deliberately as the floor: if nothing beats repeating the last value, the series has no structure worth modelling and the app says so instead of dressing it up.
+
+Around the point forecast sits a 95 percent prediction interval built from the spread of the chosen model's own residuals and widened by the square root of the horizon, so it opens out with distance the way real uncertainty does. Classical decomposition splits the series into trend, seasonal and residual components alongside it, because residuals that still drift or repeat on a cycle are the signal that the model is missing structure and the interval is too narrow.
+
+Periods with no rows are not skipped, because a forecast needs an unbroken grid to measure a trend or a season against. Totals and counts read as zero, averages are interpolated between neighbours, and the count of filled periods is disclosed. Every observed period opens to the rows behind it and its residual; every projected period opens to the arithmetic that produced it and states plainly that it has no rows because it has not happened.
+
+The guide says, and the surface repeats, that a forecast extrapolates the pattern already in the history. It cannot see a price change, a competitor, a policy, or a shock that has not occurred, and a backtest is evidence that a method would have been right recently rather than a guarantee that it will be.
+
 ### Resolving problems
 
 Every quality flag that can be resolved carries a **resolve** button offering each sensible remedy, with the effect it would have and a note on when it is the right call. Gaps can be filled with the median, mean, zero, the most common value, or the previous row, or the rows can be dropped. Duplicates can lose their repeats or every copy. Outliers can be capped at the fences or dropped. Unreadable values can be coerced to missing so the column becomes usable. Sloppy categories can be trimmed and case-unified. Dead columns can be excluded.
@@ -64,7 +77,7 @@ Every statistic, bar, point, cell and tile opens an inspector showing how the nu
 
 ### Verification
 
-A **Verify this analysis** button runs up to eighteen reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, confirms cohort and pivot totals reconcile three separate ways, confirms driver contributions sum to the total change and that mix, rate and interaction add back to the change in the average, confirms every row lands in exactly one driver group with no overlap and no loss, and proves the source file is untouched by any fix.
+A **Verify this analysis** button runs up to eighteen reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, confirms cohort and pivot totals reconcile three separate ways, confirms driver contributions sum to the total change and that mix, rate and interaction add back to the change in the average, confirms every row lands in exactly one driver group with no overlap and no loss, independently rescores every backtested forecasting method against the held-back periods and confirms the selected one really did win, confirms every prediction interval contains its own point forecast and never narrows as it looks further ahead, confirms the forecast series is an unbroken evenly spaced grid, and proves the source file is untouched by any fix.
 
 ### Control
 
@@ -88,7 +101,7 @@ Large files parse in chunks with a progress bar, wide files render column cards 
 3. Tap any number that looks surprising
 4. Press Verify this analysis before you act on anything
 
-A built-in guide behind the `?` icon covers 66 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
+A built-in guide behind the `?` icon covers 71 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
 
 ## AI briefing
 
@@ -96,9 +109,13 @@ The Briefing tab calls the Anthropic API directly from the browser using your ow
 
 ## Build notes
 
-Single file, vanilla HTML, CSS and JavaScript. No frameworks, no build step, no dependencies beyond Google Fonts. All charts are drawn on hand-rolled canvas: line, bar, histogram, scatter with an OLS fit, diverging heatmap, radial gauge and a stepped waterfall, all with hit-test regions so every element is clickable. Scales from a 375px phone to desktop.
+Single file, vanilla HTML, CSS and JavaScript. No frameworks, no build step, no dependencies beyond Google Fonts. All charts are drawn on hand-rolled canvas: line, bar, histogram, scatter with an OLS fit, diverging heatmap, radial gauge, a stepped waterfall and a forecast plot with a shaded prediction band, all with hit-test regions so every element is clickable. The forecasting engine, including the exponential smoothing recursions, the parameter grid search, the classical decomposition and the backtest, is written from scratch in the same file with no statistical library behind it. Scales from a 375px phone to desktop.
 
-Validated with automated suites covering parsing, statistics, cohorts, the inspector, the guide, pivot and comparison arithmetic, the verifier, settings and workspace round-trips, the remediation layer, and the driver decomposition against hand-computed fixtures and a constructed Simpson's paradox dataset. The drivers surface adds a headless DOM harness of 144 checks over the pane, the builder, the waterfall hit regions, the three comparison modes and the guard rails, run alongside real-browser passes at 375px and desktop confirming no page errors, no horizontal scroll and a clean verifier. Canvas instrumentation confirms no non-finite geometry across roughly twelve thousand draw calls at both widths.
+Validated with automated suites covering parsing, statistics, cohorts, the inspector, the guide, pivot and comparison arithmetic, the verifier, settings and workspace round-trips, the remediation layer, and the driver decomposition against hand-computed fixtures and a constructed Simpson's paradox dataset. The drivers surface carries a headless DOM harness of 144 checks over the pane, the builder, the waterfall hit regions, the three comparison modes and the guard rails.
+
+The forecasting layer adds three more. A math suite of 34 checks pins every method to hand-computed fixtures: a perfect straight line whose slope, intercept and projection the linear fit must recover exactly, a constructed trend-plus-seasonal series that Holt-Winters recovers to within three units, a decomposition that must reconstruct its source series to nine decimal places with seasonal indices centred on zero, and metric arithmetic checked against values computed by hand. A surface suite of 154 checks covers the pane, the builder, the interval discipline, the backtest honesty, the method override and its fallback, and the guard rails. An edge suite of 24 checks exercises flat, gapped, negative and too-short series, confirming a constant series forecasts flat with a vanishing interval, a series with four missing months still produces an unbroken grid, and both refusal paths explain themselves rather than crashing.
+
+A configuration sweep runs all 192 combinations of grain, aggregate, method, season length and horizon at both 375px and desktop widths, asserting every point forecast and interval bound is finite and the verifier stays clean in each. Canvas instrumentation across roughly one hundred and eleven thousand draw calls in that sweep confirms no non-finite geometry reaches the renderer at either width.
 
 ## Credits
 
