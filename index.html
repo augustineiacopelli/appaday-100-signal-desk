@@ -762,7 +762,7 @@ var K_KEY = 'signaldesk-key', K_SESS = 'signaldesk-sess', K_OPT = 'signaldesk-op
 var DEFAULT_OPT = {
   dateOrder:'auto', decimal:'auto',
   missing:'NA, N/A, n/a, null, NULL, -, --, none, None',
-  outlier:'iqr', excludeOut:false, rowLimit:100000,
+  outlier:'iqr', excludeOut:false, rowLimit:250000,
   theme:'dark', palette:'default', minDriverN:5
 };
 function loadOpt(){
@@ -795,7 +795,7 @@ function isMissing(v){
 var S = {
   name: '', headers: [], rows: [], cols: [], view: [], profile: null,
   filters: {}, corr: null, cohort: null, custom: [], charts: [],
-  opt: null, ov: [], miss: {}, truncated: 0, fixes: [], dropped: {}, droppedN: 0,
+  opt: null, ov: [], miss: {}, truncated: 0, truncPartial: false, fixes: [], dropped: {}, droppedN: 0,
   drivers: null, driverParams: null
 };
 S.opt = loadOpt();
@@ -1090,10 +1090,14 @@ function ingestTable(table,delim,name){
   }
   if(!rows.length) throw new Error('No data rows found under the header.');
 
-  S.truncated=0;
+  S.truncated=0; S.truncPartial=false;
   var cap=(S.opt&&S.opt.rowLimit)||0;
   if(cap>0 && rows.length>cap){ S.truncated=rows.length-cap; rows=rows.slice(0,cap); }
-  if(S.pendingTruncated){ S.truncated=Math.max(S.truncated,1); S.pendingTruncated=false; }
+  if(S.pendingTruncated){
+    S.truncated=Math.max(S.truncated,1);
+    S.truncPartial=true;
+    S.pendingTruncated=false;
+  }
   S.name=name; S.headers=headers; S.rows=rows; S.delim=delim;
   S.ov=[]; for(i=0;i<headers.length;i++) S.ov.push(null);
   S.filters={}; S.custom=[]; S.cohort=null; S.lastGood='{}'; S.rowFilter=null; S.lastGoodRows=null;
@@ -3511,7 +3515,7 @@ var HELP=[
  { c:'Settings', q:'Can I save my setup and come back to it?',
    a:'Press Save setup to download a small JSON file holding your filters, column overrides, pivot, comparison, cohort choice and settings. Next month, load the new data file, press Load setup, and the same analysis rebuilds itself. It refuses to load if the columns do not match.' },
  { c:'Settings', q:'My file is enormous.',
-   a:'Large files are read in chunks with a progress bar so the tab stays responsive, and only the first hundred thousand rows are analysed by default. A banner tells you when rows were left out and the limit is adjustable in data settings.' },
+   a:'Large files are read in chunks with a progress bar so the tab stays responsive, and only the first two hundred and fifty thousand rows are analysed by default. A banner tells you when rows were left out and the limit is adjustable in data settings.' },
  { c:'Drivers', q:'What is the Drivers tab for?',
    a:'Every other tab tells you what a number is. This one tells you where a change in that number came from. Choose two sides to compare, choose a field to split by, and the app works out how much each group of that field added to the change or took away from it. The pieces add back to the total exactly, so nothing is hidden in a rounding gap.' },
  { c:'Drivers', q:'How do I read the waterfall?',
@@ -5265,7 +5269,10 @@ function renderBanner(){
   var tb=$('trunc');
   if(!tb) return;
   var bits=[];
-  if(S.truncated) bits.push('<b>'+commas(S.truncated)+' rows were not read.</b> The file is larger than the '+commas(S.opt.rowLimit)+' row limit, so this is the first '+commas(S.rows.length)+' rows. Raise the limit in data settings if you need all of it.');
+  if(S.truncated){
+    if(S.truncPartial) bits.push('<b>The file is larger than the '+commas(S.opt.rowLimit)+' row limit.</b> Reading stopped at that point, so this is the first '+commas(S.rows.length)+' rows and the rest of the file was never opened. How many were left is not known, only that there were more. Raise the limit in data settings if you need all of it.');
+    else bits.push('<b>'+commas(S.truncated)+' rows were not read.</b> The file is larger than the '+commas(S.opt.rowLimit)+' row limit, so this is the first '+commas(S.rows.length)+' rows. Raise the limit in data settings if you need all of it.');
+  }
   if(overrideCount()) bits.push('<b>'+overrideCount()+' column'+(overrideCount()===1?'':'s')+' set by hand.</b> Automatic detection is overridden where you changed it.');
   if(S.opt.excludeOut) bits.push('<b>Outliers excluded.</b> Statistics leave out values beyond the current outlier rule.');
   var fx=fixSummaryLine();
