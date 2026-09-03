@@ -77,7 +77,7 @@ A **Verify this analysis** button runs up to eighteen reconciliation checks agai
 
 ### Resilience
 
-Large files parse in chunks with a progress bar and an adjustable row limit, wide files render column cards in batches, and the render pipeline sits behind an error boundary that reports the failure and keeps the data loaded.
+Large files parse in chunks with a progress bar, wide files render column cards in batches, and the render pipeline sits behind an error boundary that reports the failure and keeps the data loaded. The row limit defaults to 250,000 and is adjustable in data settings. When a file exceeds it the reader stops rather than pretending to a count it cannot know, and the banner says so plainly.
 
 ---
 
