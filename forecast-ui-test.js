@@ -374,7 +374,7 @@ ok('workspace carries the forecast setup', !!parsed.forecast && parsed.forecast.
 ok('workspace carries the driver setup', !!parsed.drivers);
 
 doc.getElementById('help').onclick();
-eq('help guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 71);
+eq('help guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 75);
 var catBtns = doc.getElementById('help-cats').querySelectorAll('.val'), catNames = [];
 for (i = 0; i < catBtns.length; i++) catNames.push(catBtns[i].textContent);
 ok('Forecast category offered in the guide', catNames.indexOf('Forecast') >= 0, catNames.join('|'));
