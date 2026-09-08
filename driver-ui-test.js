@@ -65,7 +65,7 @@ ok('drivers pane exists', !!doc.getElementById('pane-drivers'));
 ok('drvout inside drivers pane', doc.getElementById('pane-drivers').contains(doc.getElementById('drvout')));
 
 /* ---------- 2. help ---------- */
-eq('HELP length', SD.HELP.length, 71);
+eq('HELP length', SD.HELP.length, 75);
 var drv = SD.HELP.filter(function (h) { return h.c === 'Drivers'; });
 eq('five Drivers entries', drv.length, 5);
 ok('a Drivers entry denies causation',
