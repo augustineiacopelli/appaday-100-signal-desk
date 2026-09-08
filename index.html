@@ -839,7 +839,7 @@ var S = {
   opt: null, ov: [], miss: {}, truncated: 0, truncPartial: false, fixes: [], dropped: {}, droppedN: 0,
   drivers: null, driverParams: null,
   forecast: null, forecastParams: null,
-  bizQ: '', bizCtx: ''
+  bizQ: '', bizCtx: '', briefTruncated: false
 };
 S.opt = loadOpt();
 S.miss = missingSet();
@@ -3157,7 +3157,7 @@ function renderCohortOut(){
 
 /* ---------------- AI briefing ---------------- */
 function briefPayload(){
-  var p=S.profile, cols=[];
+  if(c.top) o.top=c.top.slice(0,8).map(function(t){ return t.v+' ('+t.c+')'; });
   for(var i=0;i<p.cols.length;i++){
     var c=p.cols[i], o={ name:c.name, type:c.sub||c.type, role:c.role, missing:+(c.missPct*100).toFixed(1), unique:c.uniq };
     if(c.stat) o.stats={ mean:+c.stat.mean.toFixed(3), median:+c.stat.med.toFixed(3), sd:+c.stat.sd.toFixed(3),
@@ -3286,14 +3286,17 @@ function runBrief(){
     }
     var txt='';
     for(var i=0;i<r.d.content.length;i++){ if(r.d.content[i].type==='text') txt+=r.d.content[i].text; }
+    S.briefTruncated = (r.d && r.d.stop_reason === 'max_tokens');
     S.brief=txt;
     clear(box);
+    if(S.briefTruncated){
+      var tb=el('div','banner');
+      tb.innerHTML='<span><b>This briefing was cut off before it finished.</b> The model reached its output limit, so what follows stops mid-sentence and the later sections are missing. Do not read the absence of a point as the absence of a finding. Shorten the question or the context and run it again.</span>';
+      box.appendChild(tb);
+    }
     var div=el('div'); div.innerHTML=mdToHtml(txt);
     box.appendChild(div);
-  })['catch'](function(){
-    clear(box);
-    box.appendChild(el('div','empty','Could not reach the API. Check the key and the network, then run it again.'));
-  });
+  })
 }
 
 /* ---------------- export ---------------- */
@@ -3393,6 +3396,10 @@ function buildReport(){
       L.push('>');
       var cx=String(S.bizCtx).split('\n');
       for(i=0;i<cx.length;i++) L.push('> '+(cx[i]||''));
+      L.push('');
+    }
+    if(S.briefTruncated){
+      L.push('> **This briefing was cut off before it finished.** The model reached its output limit. Sections after the break are missing.');
       L.push('');
     }
     if(S.brief){ L.push(S.brief); L.push(''); }
@@ -6187,7 +6194,7 @@ function finishLoad(name){
   S.cohortParams=null; S.cohort=null; S.brief='';
   S.driverParams=null; S.drivers=null;
   S.forecastParams=null; S.forecast=null;
-  S.bizQ=''; S.bizCtx='';
+  S.bizQ=''; S.bizCtx=''; S.briefTruncated=false;
   if($('bq')) $('bq').value='';
   if($('bctx')) $('bctx').value='';
   $('fname').textContent=name+' \u00B7 '+commas(S.rows.length)+' rows \u00B7 '+S.cols.length+' cols';
