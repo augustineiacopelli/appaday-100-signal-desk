@@ -3296,9 +3296,6 @@ function runBrief(){
     }
     var div=el('div'); div.innerHTML=mdToHtml(txt);
     box.appendChild(div);
-  })
-    var div=el('div'); div.innerHTML=mdToHtml(txt);
-    box.appendChild(div);
   })['catch'](function(){
     clear(box);
     box.appendChild(el('div','empty','Could not reach the API. Check the key and the network, then run it again.'));
