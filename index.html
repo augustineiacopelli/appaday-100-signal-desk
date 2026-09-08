@@ -3157,13 +3157,13 @@ function renderCohortOut(){
 
 /* ---------------- AI briefing ---------------- */
 function briefPayload(){
-  if(c.top) o.top=c.top.slice(0,8).map(function(t){ return t.v+' ('+t.c+')'; });
+  var p=S.profile, cols=[];
   for(var i=0;i<p.cols.length;i++){
     var c=p.cols[i], o={ name:c.name, type:c.sub||c.type, role:c.role, missing:+(c.missPct*100).toFixed(1), unique:c.uniq };
     if(c.stat) o.stats={ mean:+c.stat.mean.toFixed(3), median:+c.stat.med.toFixed(3), sd:+c.stat.sd.toFixed(3),
       min:+c.stat.min.toFixed(3), max:+c.stat.max.toFixed(3), skew:+c.stat.skew.toFixed(2), outliers:c.stat.out };
     if(c.type==='date') o.range=[c.minD?iso(c.minD):null, c.maxD?iso(c.maxD):null];
-    if(c.top) o.top=c.top.slice(0,5).map(function(t){ return t.v+' ('+t.c+')'; });
+    if(c.top) o.top=c.top.slice(0,8).map(function(t){ return t.v+' ('+t.c+')'; });
     cols.push(o);
   }
   var pay={ dataset:S.name, rowsInScope:p.rows, rowsTotal:p.total, columns:cols,
@@ -3275,7 +3275,7 @@ function runBrief(){
     method:'POST',
     headers:{ 'Content-Type':'application/json', 'x-api-key':key,
       'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true' },
-    body: JSON.stringify({ model:CLAUDE_MODEL, max_tokens:1800, messages:[{ role:'user', content:prompt }] })
+    body: JSON.stringify({ model:CLAUDE_MODEL, max_tokens:4000, messages:[{ role:'user', content:prompt }] })
   }).then(function(res){
     return res.json().then(function(d){ return { ok:res.ok, d:d }; });
   }).then(function(r){
@@ -3297,6 +3297,12 @@ function runBrief(){
     var div=el('div'); div.innerHTML=mdToHtml(txt);
     box.appendChild(div);
   })
+    var div=el('div'); div.innerHTML=mdToHtml(txt);
+    box.appendChild(div);
+  })['catch'](function(){
+    clear(box);
+    box.appendChild(el('div','empty','Could not reach the API. Check the key and the network, then run it again.'));
+  });
 }
 
 /* ---------------- export ---------------- */
