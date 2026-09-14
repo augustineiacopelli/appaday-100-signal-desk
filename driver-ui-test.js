@@ -65,7 +65,7 @@ ok('drivers pane exists', !!doc.getElementById('pane-drivers'));
 ok('drvout inside drivers pane', doc.getElementById('pane-drivers').contains(doc.getElementById('drvout')));
 
 /* ---------- 2. help ---------- */
-eq('HELP length', SD.HELP.length, 75);
+eq('HELP length', SD.HELP.length, 80);
 var drv = SD.HELP.filter(function (h) { return h.c === 'Drivers'; });
 eq('five Drivers entries', drv.length, 5);
 ok('a Drivers entry denies causation',
@@ -397,7 +397,7 @@ ok('report still builds', typeof rep === 'string' && rep.length > 500);
 var wsj = SD.workspaceJSON();
 ok('workspace still serialises', typeof wsj === 'string' && wsj.length > 20);
 doc.getElementById('help').onclick();
-eq('help guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 71);
+eq('help guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 80);
 var catBtns = doc.getElementById('help-cats').querySelectorAll('.val');
 var catNames = [];
 for (i = 0; i < catBtns.length; i++) catNames.push(catBtns[i].textContent);
