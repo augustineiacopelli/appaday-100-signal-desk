@@ -2023,17 +2023,36 @@ function etaSquared(rows,dimIdx,measIdx){
   }
   return { eta2: ssTotal>0 ? ssBetween/ssTotal : 0, n:n, k:keys.length, ssTotal:ssTotal, ssBetween:ssBetween };
 }
-function paradoxCheck(rateResult){
-  var pool=(rateResult&&rateResult.allMembers)||[], cont=[], i;
-  for(i=0;i<pool.length;i++){ if(pool[i].nA>0 && pool[i].nB>0 && pool[i].kind==='continuing') cont.push(pool[i]); }
-  if(cont.length<2) return { detected:false, reason:'fewer than two continuing members', members:cont };
-  var dir=0, unanimous=true;
-  for(i=0;i<cont.length;i++){
-    var d=cont[i].rateB-cont[i].rateA, s=d>0?1:(d<0?-1:0);
-    if(s===0) continue;
-    if(dir===0) dir=s; else if(s!==dir){ unanimous=false; break; }
+function paradoxCheck(rateResult,minCell){
+  var pool=(rateResult&&rateResult.allMembers)||[], cont=[], i, small=0;
+  var mc=(minCell===undefined||minCell===null) ? ((S.opt&&S.opt.minDriverN)||0) : minCell;
+  var base={ detected:false, partial:false, direction:'flat', pooledDirection:'flat',
+    unanimous:false, groupsUp:0, groupsDown:0, groupsFlat:0, weightAgainst:0,
+    pooledA:0, pooledB:0, headlineA:(rateResult?rateResult.meanA:0), headlineB:(rateResult?rateResult.meanB:0),
+    headlineIsPooled:false, excluded:0, smallGroups:0, minCell:mc, members:[], reason:'' };
+  for(i=0;i<pool.length;i++){
+    var m=pool[i];
+    if(!(m.nA>0 && m.nB>0) || m.kind!=='continuing') continue;
+    if(m.nA<mc || m.nB<mc){ small++; continue; }
+    cont.push(m);
   }
-  if(dir===0 || !unanimous) return { detected:false, reason:'members do not move in one direction', members:cont };
+  base.members=cont; base.smallGroups=small; base.excluded=pool.length-cont.length;
+  if(cont.length<2){
+    base.reason = small ? ('fewer than two groups clear the minimum of '+mc+' rows on each side') : 'fewer than two groups appear on both sides';
+    return base;
+  }
+  var up=0, down=0, flat=0, wUp=0, wDown=0, wAll=0;
+  for(i=0;i<cont.length;i++){
+    var d=cont[i].rateB-cont[i].rateA, w=cont[i].nA+cont[i].nB;
+    wAll+=w;
+    if(d>0){ up++; wUp+=w; } else if(d<0){ down++; wDown+=w; } else flat++;
+  }
+  base.groupsUp=up; base.groupsDown=down; base.groupsFlat=flat;
+  var moved=up+down;
+  if(moved===0){ base.reason='no group on both sides changed at all'; return base; }
+  var dir = up>down?1:(down>up?-1:0);
+  base.unanimous = (up===moved || down===moved);
+  base.direction = dir>0?'increase':(dir<0?'decrease':'flat');
   var sumA=0, nA=0, sumB=0, nB=0;
   for(i=0;i<cont.length;i++){
     sumA+=cont[i].rateA*cont[i].nA; nA+=cont[i].nA;
@@ -2041,10 +2060,223 @@ function paradoxCheck(rateResult){
   }
   var pooledA = nA? sumA/nA : 0, pooledB = nB? sumB/nB : 0;
   var pooledDir = pooledB>pooledA?1:(pooledB<pooledA?-1:0);
-  var detected = pooledDir!==0 && pooledDir!==dir;
-  return { detected:detected, direction: dir>0?'increase':'decrease',
-    pooledDirection: pooledDir>0?'increase':(pooledDir<0?'decrease':'flat'),
-    pooledA:pooledA, pooledB:pooledB, members:cont };
+  base.pooledA=pooledA; base.pooledB=pooledB;
+  base.pooledDirection = pooledDir>0?'increase':(pooledDir<0?'decrease':'flat');
+  var tol=1e-9*Math.max(1,Math.abs(pooledA),Math.abs(base.headlineA));
+  base.headlineIsPooled = Math.abs(base.headlineA-pooledA)<=tol && Math.abs(base.headlineB-pooledB)<=Math.max(tol,1e-9*Math.max(1,Math.abs(pooledB)));
+  base.weightAgainst = wAll ? (pooledDir>0 ? wDown/wAll : (pooledDir<0 ? wUp/wAll : 0)) : 0;
+  base.detected = base.unanimous && dir!==0 && pooledDir!==0 && pooledDir!==dir;
+  base.partial = !base.detected && pooledDir!==0 && base.weightAgainst>=0.6;
+  if(!base.detected && !base.partial) base.reason='the groups and the pooled average point the same way';
+  return base;
+}
+/* ---------------- composition checks and reversal scan ---------------- */
+var SSQ_DEF = { minCell:5, minLevels:2, maxLevels:40, minCoverage:0.75, maxDims:14, topN:6, partialW:0.6 };
+function ssqOpt(over){
+  var o={}, k;
+  for(k in SSQ_DEF){ if(Object.prototype.hasOwnProperty.call(SSQ_DEF,k)) o[k]=SSQ_DEF[k]; }
+  var m=(S.opt&&S.opt.minDriverN);
+  if(m!==undefined && m!==null && m>0) o.minCell=m;
+  if(over){ for(k in over){ if(Object.prototype.hasOwnProperty.call(over,k)) o[k]=over[k]; } }
+  return o;
+}
+function ssqSide(rows,dimIdx,measIdx){
+  var dc=S.cols[dimIdx], mc=S.cols[measIdx], map={}, keys=[], i, n=0, s=0;
+  for(i=0;i<rows.length;i++){
+    var r=rows[i], dv=dc.vals[r], mv=mc.vals[r];
+    if(dv===null||dv===undefined||dv==='') continue;
+    if(mv===null||mv===undefined||!isFinite(mv)) continue;
+    var k=String(dv);
+    if(map[k]===undefined){ map[k]={ n:0, s:0 }; keys.push(k); }
+    map[k].n++; map[k].s+=mv; n++; s+=mv;
+  }
+  return { map:map, keys:keys, n:n, sum:s, mean:(n?s/n:0) };
+}
+function ssqCompareOn(rowsA,rowsB,dimIdx,measIdx,o){
+  o=o||ssqOpt();
+  var pc=(S.profile&&S.profile.cols[dimIdx])||null;
+  var res={ ok:false, reason:'', dimIdx:dimIdx, dimName: pc?pc.name:String(dimIdx),
+    baseLabel:(o.labels&&o.labels.base)||'baseline', compLabel:(o.labels&&o.labels.comp)||'comparison',
+    levels:[], rawA:0, rawB:0, rawDelta:0, stdA:0, stdB:0, stdDelta:0,
+    rawSign:0, stdSign:0, up:0, down:0, flat:0, weightAgainst:0,
+    allAgainst:false, flips:false, reversal:'none', severity:0,
+    sharedLevels:0, testedLevels:0, coverA:0, coverB:0, nA:0, nB:0, minCell:o.minCell };
+  if(measIdx===null||measIdx===undefined){ res.reason='no numeric measure to average'; return res; }
+  var A=ssqSide(rowsA,dimIdx,measIdx), B=ssqSide(rowsB,dimIdx,measIdx);
+  res.nA=A.n; res.nB=B.n;
+  if(!A.n||!B.n){ res.reason='one side has no rows carrying both fields'; return res; }
+  res.rawA=A.mean; res.rawB=B.mean; res.rawDelta=B.mean-A.mean;
+  var seen={}, union=[], i, k;
+  for(i=0;i<A.keys.length;i++){ if(!seen[A.keys[i]]){ seen[A.keys[i]]=1; union.push(A.keys[i]); } }
+  for(i=0;i<B.keys.length;i++){ if(!seen[B.keys[i]]){ seen[B.keys[i]]=1; union.push(B.keys[i]); } }
+  if(union.length>o.maxLevels){ res.reason='has '+union.length+' distinct values, above the ceiling of '+o.maxLevels; return res; }
+  var lv=[], wsum=0, usedA=0, usedB=0;
+  for(i=0;i<union.length;i++){
+    k=union[i];
+    var ea=A.map[k], eb=B.map[k];
+    if(!ea||!eb) continue;
+    res.sharedLevels++;
+    if(ea.n<o.minCell||eb.n<o.minCell) continue;
+    var mA=ea.s/ea.n, mB=eb.s/eb.n, w=ea.n+eb.n;
+    lv.push({ key:k, label:k, nA:ea.n, nB:eb.n, meanA:mA, meanB:mB, delta:mB-mA, w:w, wPool:0 });
+    wsum+=w; usedA+=ea.n; usedB+=eb.n;
+  }
+  res.testedLevels=lv.length;
+  if(lv.length<o.minLevels){ res.reason='fewer than '+o.minLevels+' values carry at least '+o.minCell+' rows on both sides'; return res; }
+  res.coverA=A.n?usedA/A.n:0; res.coverB=B.n?usedB/B.n:0;
+  if(res.coverA<o.minCoverage||res.coverB<o.minCoverage){
+    res.reason='testable values cover only '+Math.round(Math.min(res.coverA,res.coverB)*100)+' percent of one side';
+    return res;
+  }
+  var sA=0, sB=0, up=0, down=0, flat=0, wUp=0, wDown=0;
+  for(i=0;i<lv.length;i++){
+    var L=lv[i];
+    L.wPool=L.w/wsum;
+    sA+=L.wPool*L.meanA; sB+=L.wPool*L.meanB;
+    if(L.delta>0){ up++; wUp+=L.wPool; }
+    else if(L.delta<0){ down++; wDown+=L.wPool; }
+    else flat++;
+  }
+  res.levels=lv; res.stdA=sA; res.stdB=sB; res.stdDelta=sB-sA;
+  res.up=up; res.down=down; res.flat=flat; res.weightUp=wUp; res.weightDown=wDown;
+  res.rawSign=res.rawDelta>0?1:(res.rawDelta<0?-1:0);
+  res.stdSign=res.stdDelta>0?1:(res.stdDelta<0?-1:0);
+  var moved=up+down;
+  res.weightAgainst = res.rawSign>0 ? wDown : (res.rawSign<0 ? wUp : 0);
+  res.allAgainst = res.rawSign!==0 && moved>0 && ((res.rawSign>0&&down===moved)||(res.rawSign<0&&up===moved));
+  res.flips = res.rawSign!==0 && res.stdSign!==0 && res.stdSign!==res.rawSign;
+  if(res.allAgainst) res.reversal='full';
+  else if(res.flips) res.reversal='standardized';
+  else if(res.rawSign!==0 && res.weightAgainst>=o.partialW) res.reversal='partial';
+  res.severity = (res.allAgainst?3:(res.flips?2:(res.reversal==='partial'?1:0))) + res.weightAgainst;
+  res.ok=true;
+  return res;
+}
+function ssqEligibleDims(skipIdx,measIdx,o){
+  var p=S.profile, out=[], i;
+  if(!p) return out;
+  o=o||ssqOpt();
+  for(i=0;i<p.cols.length;i++){
+    var c=p.cols[i];
+    if(!c||c.excluded) continue;
+    if(c.idx===skipIdx||c.idx===measIdx) continue;
+    if(c.type!=='category'&&c.type!=='boolean') continue;
+    if(!(c.uniq>=2&&c.uniq<=o.maxLevels)) continue;
+    out.push(c.idx);
+  }
+  return out;
+}
+function ssqScan(rowsA,rowsB,measIdx,skipIdx,o){
+  o=o||ssqOpt();
+  var dims=ssqEligibleDims(skipIdx,measIdx,o), hits=[], skipped=[], i, n=0;
+  for(i=0;i<dims.length&&n<o.maxDims;i++){
+    var r=ssqCompareOn(rowsA,rowsB,dims[i],measIdx,o);
+    n++;
+    if(!r.ok) skipped.push({ dimIdx:dims[i], name:r.dimName, reason:r.reason });
+    else if(r.reversal!=='none') hits.push(r);
+  }
+  hits.sort(function(x,y){ return y.severity-x.severity; });
+  return { checked:n, available:dims.length, hits:(hits.length>o.topN?hits.slice(0,o.topN):hits),
+    found:hits.length, skipped:skipped, measIdx:measIdx, skipIdx:skipIdx, minCell:o.minCell };
+}
+function pivotReversal(P,o){
+  o=o||ssqOpt();
+  var res={ ok:false, reason:'', rows:[], cols:[], rowFlips:[], colFlips:[], minCell:o.minCell, tested:0 };
+  if(!P){ res.reason='no pivot built'; return res; }
+  if(P.agg!=='avg'){ res.reason='totals and counts cannot reverse under a change of mix, only averages can'; return res; }
+  if(P.measIdx===null||P.measIdx===undefined){ res.reason='no numeric measure to average'; return res; }
+  var rN=P.cells.length, cN=rN?P.cells[0].length:0, i, j;
+  if(rN<2||cN<2){ res.reason='needs at least two rows and two columns'; return res; }
+  var colN=[], totN=0, rowN=[], rowTotN=0;
+  for(j=0;j<cN;j++){ colN.push(0); }
+  for(i=0;i<rN;i++){
+    rowN.push(0);
+    for(j=0;j<cN;j++){ var nn=P.cells[i][j].n; rowN[i]+=nn; colN[j]+=nn; }
+    rowTotN+=rowN[i];
+  }
+  for(j=0;j<cN;j++) totN+=colN[j];
+  if(!totN){ res.reason='no rows land in the grid'; return res; }
+  function band(kind,ix,over,wArr,wTot,label){
+    var rs=0, rn=0, s=0, w=0, q, c;
+    for(q=0;q<over;q++){
+      c = kind==='row' ? P.cells[ix][q] : P.cells[q][ix];
+      rs+=c.s; rn+=c.n;
+      if(c.n<o.minCell) continue;
+      var ww=wArr[q]/wTot;
+      if(!(ww>0)) continue;
+      s+=ww*(c.s/c.n); w+=ww;
+    }
+    if(!rn || !(w>0) || w<o.minCoverage) return null;
+    return { kind:kind, ix:ix, label:label, raw:rs/rn, std:s/w, cover:w, n:rn };
+  }
+  for(i=0;i<rN;i++){ var rb=band('row',i,cN,colN,totN,P.rowLabels[i]); if(rb) res.rows.push(rb); }
+  for(j=0;j<cN;j++){ var cb=band('col',j,rN,rowN,rowTotN,P.colLabels[j]); if(cb) res.cols.push(cb); }
+  function flips(list){
+    var out=[], a, b;
+    for(a=0;a<list.length;a++) for(b=a+1;b<list.length;b++){
+      var dr=list[b].raw-list[a].raw, ds=list[b].std-list[a].std;
+      var sr=dr>0?1:(dr<0?-1:0), ss=ds>0?1:(ds<0?-1:0);
+      if(sr!==0 && ss!==0 && sr!==ss) out.push({ a:list[a], b:list[b], rawGap:dr, stdGap:ds });
+    }
+    out.sort(function(x,y){ return Math.abs(y.rawGap-y.stdGap)-Math.abs(x.rawGap-x.stdGap); });
+    return out;
+  }
+  res.rowFlips=flips(res.rows);
+  res.colFlips=flips(res.cols);
+  res.tested=res.rows.length+res.cols.length;
+  res.ok=true;
+  return res;
+}
+function ssqWord(kind){
+  if(kind==='full') return 'a full reversal';
+  if(kind==='standardized') return 'a reversal once the mix is held equal';
+  if(kind==='partial') return 'a partial reversal';
+  return 'no reversal';
+}
+function ssqCard(heading,intro,hits,f,onPick){
+  var card=el('div','card'); card.style.marginTop='12px';
+  card.appendChild(el('p','eyebrow',heading));
+  var b=el('div','banner');
+  b.innerHTML='<span>'+intro+'</span>';
+  card.appendChild(b);
+  var t=el('table'), th=el('thead'), tr=el('tr'), i;
+  ['Field','Headline','Mix held equal','Against','Verdict'].forEach(function(x){ tr.appendChild(el('th',null,x)); });
+  th.appendChild(tr); t.appendChild(th);
+  var tb=el('tbody');
+  for(i=0;i<hits.length;i++){
+    (function(h){
+      var row=el('tr', onPick?'tap':null);
+      if(onPick) row.onclick=function(){ onPick(h); };
+      row.appendChild(el('td',null,h.dimName));
+      row.appendChild(el('td','num',signedBy(f,h.rawDelta)));
+      row.appendChild(el('td','num',signedBy(f,h.stdDelta)));
+      row.appendChild(el('td','num',pct(h.weightAgainst,0)));
+      row.appendChild(el('td',null,ssqWord(h.reversal)));
+      tb.appendChild(row);
+    })(hits[i]);
+  }
+  t.appendChild(tb);
+  var tw=el('div','tblwrap'); tw.appendChild(t); card.appendChild(tw);
+  var why=el('div','why');
+  why.innerHTML='<b>Reading it:</b> the headline pools both sides exactly as they are. The second figure reweights both sides onto one shared mix, so the only thing left moving is the groups themselves. Neither number is the true one. They answer different questions, and the gap between them is the size of the composition effect. Choosing which to quote is a judgment about cause, and this app does not make that judgment for you.';
+  card.appendChild(why);
+  return card;
+}
+function insSsq(h,f,rows){
+  var how=[], i;
+  how.push('Comparing <b>'+esc(h.compLabel)+'</b> against <b>'+esc(h.baseLabel)+'</b>, holding <b>'+esc(h.dimName)+'</b> equal.');
+  how.push('Pooled as they stand, the two sides average <code>'+f(h.rawA)+'</code> and <code>'+f(h.rawB)+'</code>, a change of <code>'+signedBy(f,h.rawDelta)+'</code>.');
+  how.push('Reweighted onto one shared mix, built from the combined row counts at each value, they give <code>'+f(h.stdA)+'</code> and <code>'+f(h.stdB)+'</code>, a change of <code>'+signedBy(f,h.stdDelta)+'</code>.');
+  how.push('<b>'+h.testedLevels+'</b> of <b>'+h.sharedLevels+'</b> shared values cleared the minimum of '+h.minCell+' rows on each side, covering '+pct(h.coverA,0)+' of the baseline and '+pct(h.coverB,0)+' of the comparison.');
+  how.push('Of those tested, <b>'+h.up+'</b> rose, <b>'+h.down+'</b> fell and <b>'+h.flat+'</b> held flat. The ones moving against the headline carry <b>'+pct(h.weightAgainst,1)+'</b> of the shared weight.');
+  for(i=0;i<h.levels.length && i<14;i++){
+    var L=h.levels[i];
+    how.push('<b>'+esc(L.label)+'</b>: <code>'+f(L.meanA)+'</code> to <code>'+f(L.meanB)+'</code> (<code>'+signedBy(f,L.delta)+'</code>) on '+commas(L.nA)+' and '+commas(L.nB)+' rows, carrying '+pct(L.wPool,1)+' of the weight.');
+  }
+  if(h.levels.length>14) how.push('The remaining '+(h.levels.length-14)+' values are in the figures but not listed here.');
+  how.push('This is arithmetic, not causation. Holding a field equal is only the right move if that field is a common cause of both sides rather than a step on the path between them, and the data alone cannot tell you which it is.');
+  openInspector({ sub:'Composition', title:h.dimName+' held equal', name:'ssq-'+h.dimName,
+    how:how, focus:h.dimIdx, rows:(rows||[]) });
 }
 function explain(params){
   var p=params||{};
@@ -2069,11 +2301,16 @@ function explain(params){
     meta.aLabel='Rest of the file'; meta.bLabel='Current selection';
   }
   var sum=contribSum(rowsA,rowsB,dimIdx,measIdx,grain,cap);
-  var out={ meta:meta, rowsA:rowsA, rowsB:rowsB, sum:sum, rate:null, eta:null, paradox:null };
+  var out={ meta:meta, rowsA:rowsA, rowsB:rowsB, sum:sum, rate:null, eta:null, paradox:null, std:null, scan:null };
   if(measIdx!==null){
     out.rate=contribRate(rowsA,rowsB,dimIdx,measIdx,grain,cap);
     out.paradox=paradoxCheck(out.rate);
     out.eta={ onA:etaSquared(rowsA,dimIdx,measIdx), onB:etaSquared(rowsB,dimIdx,measIdx) };
+    if(agg==='avg'){
+      var so=ssqOpt({ labels:{ base:meta.aLabel, comp:meta.bLabel } });
+      out.std=ssqCompareOn(rowsA,rowsB,dimIdx,measIdx,so);
+      out.scan=ssqScan(rowsA,rowsB,measIdx,dimIdx,so);
+    }
   }
   return out;
 }
@@ -3198,6 +3435,27 @@ function briefPayload(){
     if(useRate) pay.changeDecomposition.mixRateInteraction={
       mix:+Dr.rate.mix.toFixed(3), rate:+Dr.rate.rate.toFixed(3),
       interaction:+Dr.rate.interaction.toFixed(3) };
+    if(Dr.std || Dr.scan){
+      var cc={ method:'direct standardization onto the pooled composition of both sides',
+        note:'Only averages are tested. A reversal means the headline and the reweighted figure disagree because they answer different questions. Neither is the true one, and choosing between them is a causal judgment the data does not support.',
+        checks:[] };
+      if(Dr.std && Dr.std.ok) cc.checks.push({ fieldHeldEqual:Dr.std.dimName, isSplitField:true,
+        headlineChange:+Dr.std.rawDelta.toFixed(3), changeWithMixHeldEqual:+Dr.std.stdDelta.toFixed(3),
+        groupsUp:Dr.std.up, groupsDown:Dr.std.down, rowShareMovingAgainstHeadline:+Dr.std.weightAgainst.toFixed(3),
+        verdict:Dr.std.reversal });
+      else if(Dr.std) cc.notTested=[{ field:Dr.std.dimName, reason:Dr.std.reason }];
+      if(Dr.scan){
+        cc.fieldsScanned=Dr.scan.checked; cc.reversalsFound=Dr.scan.found;
+        for(di=0; di<Dr.scan.hits.length; di++){
+          var sh=Dr.scan.hits[di];
+          cc.checks.push({ fieldHeldEqual:sh.dimName, isSplitField:false,
+            headlineChange:+sh.rawDelta.toFixed(3), changeWithMixHeldEqual:+sh.stdDelta.toFixed(3),
+            groupsUp:sh.up, groupsDown:sh.down, rowShareMovingAgainstHeadline:+sh.weightAgainst.toFixed(3),
+            verdict:sh.reversal });
+        }
+      }
+      pay.compositionChecks=cc;
+    }
   }
   if(S.forecast && S.forecastParams && !S.forecast.tooShort){
     var Fr=S.forecast, Fp=S.forecastParams, fp=[], fb=[], fi;
@@ -3388,6 +3646,41 @@ function buildReport(){
     }
     L.push('');
     L.push('Intervals are 95 percent, built from the residual spread of the fitted model and widened by the square root of the horizon. A forecast projects the pattern already in the history and cannot account for anything that has not happened yet.');
+    L.push('');
+  }
+  if(S.drivers && S.driverParams && S.driverParams.agg==='avg' && (S.drivers.std || S.drivers.scan)){
+    var Ds=S.drivers, df=driverFmt();
+    L.push('## Composition checks');
+    L.push('');
+    L.push('Only averages can reverse under a change of mix, so these checks run on averages alone. Each one reweights both sides of the comparison onto a single shared composition and reports what survives.');
+    L.push('');
+    if(Ds.paradox && (Ds.paradox.detected||Ds.paradox.partial)){
+      L.push('> **'+(Ds.paradox.detected?'Full reversal on the split field.':'Partial reversal on the split field.')+'** Groups carrying '+
+        pct(Ds.paradox.weightAgainst,0)+' of the rows show a '+Ds.paradox.direction+' while the pooled average shows a '+Ds.paradox.pooledDirection+'.'+
+        (Ds.paradox.headlineIsPooled?'':' The pooled figure covers groups present on both sides only, so it differs from the headline, which includes groups that entered or left.'));
+      L.push('');
+    }
+    if(Ds.std && Ds.std.ok){
+      L.push('| Field held equal | Headline | Mix held equal | Rows against | Verdict |');
+      L.push('| --- | --- | --- | --- | --- |');
+      L.push('| '+Ds.std.dimName+' (the split field) | '+signedBy(df,Ds.std.rawDelta)+' | '+signedBy(df,Ds.std.stdDelta)+' | '+pct(Ds.std.weightAgainst,0)+' | '+ssqWord(Ds.std.reversal)+' |');
+      if(Ds.scan){
+        for(i=0;i<Ds.scan.hits.length;i++){
+          var hh=Ds.scan.hits[i];
+          L.push('| '+hh.dimName+' | '+signedBy(df,hh.rawDelta)+' | '+signedBy(df,hh.stdDelta)+' | '+pct(hh.weightAgainst,0)+' | '+ssqWord(hh.reversal)+' |');
+        }
+      }
+      L.push('');
+    } else if(Ds.std) {
+      L.push('The split field '+Ds.std.dimName+' could not be tested: '+Ds.std.reason+'.');
+      L.push('');
+    }
+    if(Ds.scan){
+      L.push('Scanned '+Ds.scan.checked+' other field'+(Ds.scan.checked===1?'':'s')+' for a hidden reversal and found '+Ds.scan.found+
+        (Ds.scan.skipped.length?'. Skipped '+Ds.scan.skipped.length+' as too thin to test at '+Ds.scan.minCell+' rows a side':'')+'.');
+      L.push('');
+    }
+    L.push('Neither figure in the table is the true one. The headline describes the file as it stands and the reweighted figure describes it with the mix held equal. Deciding which to quote requires knowing whether the field being held equal is a common cause of both sides or a step on the path between them, and no amount of data settles that.');
     L.push('');
   }
   if(S.bizQ||S.bizCtx||S.brief){
@@ -4106,6 +4399,17 @@ var HELP=[
  { c:'Drivers', q:'Does a big contribution mean that group caused the change?',
    a:'No. Contribution is arithmetic attribution, not causation. It tells you where the change sits in your data, not why it happened. A group can carry most of the change because it is simply the largest, or because something else moved underneath it that this field cannot see. Treat the ranking as a place to start asking questions, never as an answer to them.' },
 
+ { c:'Composition', q:'Does the app check for Simpson\u2019s paradox?',
+   a:'Yes, in three places. The Drivers tab tests the field you split by and then scans every other category field in the file for a reversal you did not think to look for. The Compare tab runs the same scan against the five largest numeric gaps between your two segments. The Pivot tab reweights the row and column margins and reports any pair that swaps order. All three only run on averages, because a total or a count cannot reverse this way.' },
+ { c:'Composition', q:'What does holding the mix equal actually do?',
+   a:'It is direct standardization. Both sides are reweighted onto a single shared composition, built from the combined row counts at each value of the field being held equal, so each side is scored as if it had the same spread across that field. Whatever difference survives is the groups themselves moving rather than the file rearranging underneath them. The arithmetic is a weighted average of group averages and nothing more.' },
+ { c:'Composition', q:'Why did it refuse to test some of my columns?',
+   a:'Four guards, and each one is there because a reversal found on thin data is usually noise wearing a costume. A value has to carry at least the minimum group size from data settings on both sides before it counts. At least two values have to clear that bar. A column with more distinct values than the ceiling is skipped entirely. And the values that do clear the bar have to cover at least three quarters of each side, otherwise standardizing would be describing a small corner of the file rather than the file. When a check is skipped the app names the reason instead of quietly reporting nothing.' },
+ { c:'Composition', q:'Which number should I quote, the headline or the standardized one?',
+   a:'That is not an arithmetic question and the app will not answer it for you. The headline describes what your file actually contains, mix and all. The standardized figure describes what it would contain if both sides carried the same mix. Holding a field equal is right when that field is a common cause of both things you are comparing, and wrong when it sits on the path between them, because then you are adjusting away part of the very effect you are measuring. Nothing in the data distinguishes those two cases. Quote both, say which you are quoting, and be ready to defend why.' },
+ { c:'Composition', q:'A reversal showed up. Is my analysis wrong?',
+   a:'Not wrong, incomplete. Both figures are correctly computed and they disagree because they are answering different questions. What the warning tells you is that the headline is being carried by which groups grew rather than by any group moving, so quoting it alone would mislead someone even though every number in it is right. Open the check, read the group by group table, and decide what you can actually stand behind.' },
+
  { c:'Forecast', q:'What does the Forecast tab actually do?',
    a:'It turns your rows into an evenly spaced time series, fits seven standard forecasting methods to it, and then tests them honestly by hiding the most recent stretch of history, fitting on what is left, and asking each one to predict the part it never saw. The method that came closest is the one used to project forward. You see every score, not just the winner.' },
  { c:'Forecast', q:'Which methods are fitted?',
@@ -4333,6 +4637,27 @@ function renderPivot(){
     note.innerHTML='<b>Reading it:</b> '+bits.join(', ')+'. Totals still include everything shown.';
     box.appendChild(note);
   }
+  var PR=pivotReversal(P);
+  if(PR.ok && (PR.rowFlips.length || PR.colFlips.length)){
+    var pvb=el('div','banner'); pvb.style.marginTop='12px';
+    var bits2=[];
+    if(PR.rowFlips.length) bits2.push(PR.rowFlips.length+' pair'+(PR.rowFlips.length===1?'':'s')+' of '+esc(S.headers[P.rowIdx])+' rows');
+    if(PR.colFlips.length) bits2.push(PR.colFlips.length+' pair'+(PR.colFlips.length===1?'':'s')+' of '+esc(S.headers[P.colIdx])+' columns');
+    var ex = PR.rowFlips.length ? PR.rowFlips[0] : PR.colFlips[0];
+    pvb.innerHTML='<span><b>Some margins swap places once the mix is held equal.</b> '+bits2.join(' and ')+
+      ' change order when both sides are reweighted onto one shared composition. For example <b>'+esc(String(ex.a.label))+'</b> reads '+
+      (ex.rawGap<0?'above':'below')+' <b>'+esc(String(ex.b.label))+'</b> in the margin at '+u+fmt(ex.a.raw)+' against '+u+fmt(ex.b.raw)+
+      ', yet reweighted it reads '+(ex.stdGap<0?'above':'below')+' it at '+u+fmt(ex.a.std)+' against '+u+fmt(ex.b.std)+
+      '. The margin averages every cell as the file happens to fill it, so an unequal spread across the other field can drive the order on its own.</span>';
+    box.appendChild(pvb);
+    var pvw=el('div','why');
+    pvw.innerHTML='<b>Reading it:</b> only averages can swap this way, and only cells with at least '+PR.minCell+' rows are counted. Neither ordering is the true one. The margin answers what the file actually contains and the reweighted figure answers what it would contain if both margins carried the same mix.';
+    box.appendChild(pvw);
+  } else if(PR.ok){
+    var pvn=el('div','why'); pvn.style.marginTop='12px';
+    pvn.innerHTML='<b>Composition check:</b> '+PR.tested+' margin'+(PR.tested===1?'':'s')+' were reweighted onto one shared mix and none changed order, so the ordering you see is not an artifact of how the grid fills.';
+    box.appendChild(pvn);
+  }
   var wrap=el('div','tblwrap'); wrap.style.maxHeight='60dvh';
   var t=el('table','pivot');
   var th=el('thead'), tr=el('tr');
@@ -4482,9 +4807,19 @@ function compareSegments(dimIdx,aKey,bKey){
     }
   }
   findings.sort(function(x,y){ return y.eff-x.eff; });
+  var aLab=aKey, bLab= other ? 'everything else' : bKey;
+  var rev=[], done={}, nrev=0;
+  for(i=0;i<findings.length && nrev<5;i++){
+    var fnd=findings[i];
+    if(fnd.kind!=='num' || done[fnd.col]) continue;
+    done[fnd.col]=1; nrev++;
+    var so=ssqOpt({ labels:{ base:String(bLab), comp:String(aLab) } });
+    var sc=ssqScan(rowsB,rowsA,fnd.col,dimIdx,so);
+    rev.push({ col:fnd.col, name:fnd.name, cur:fnd.cur, scan:sc });
+  }
   return { dimIdx:dimIdx, aKey:aKey, bKey:bKey, other:other,
-    aLabel:aKey, bLabel: other ? 'everything else' : bKey,
-    rowsA:rowsA, rowsB:rowsB, findings:findings };
+    aLabel:aLab, bLabel:bLab,
+    rowsA:rowsA, rowsB:rowsB, findings:findings, reversals:rev };
 }
 function renderCompare(){
   var box=$('cmpout'); clear(box);
@@ -4505,6 +4840,25 @@ function renderCompare(){
   var big=C.findings.filter(function(f){ return f.kind==='num'&&Math.abs(f.d)>=0.5; }).length;
   addStat(kpi,'Notable gaps',big);
   box.appendChild(kpi);
+  if(C.reversals && C.reversals.length){
+    var anyRev=0, chk=0, skp=0, ri;
+    for(ri=0;ri<C.reversals.length;ri++){ anyRev+=C.reversals[ri].scan.found; chk+=C.reversals[ri].scan.checked; skp+=C.reversals[ri].scan.skipped.length; }
+    if(anyRev){
+      for(ri=0;ri<C.reversals.length;ri++){
+        (function(rv){
+          if(!rv.scan.hits.length) return;
+          var cf=function(v){ return (rv.cur?'$':'')+fmt(v); };
+          var intro='The gap in <b>'+esc(rv.name)+'</b> between these two segments reverses or nearly reverses once the fields below are held equal. Tap a row for the group by group arithmetic.';
+          box.appendChild(ssqCard('Composition check: '+rv.name,intro,rv.scan.hits,cf,function(h){ insSsq(h,cf,C.rowsA.concat(C.rowsB)); }));
+        })(C.reversals[ri]);
+      }
+    } else {
+      var cw=el('div','why'); cw.style.marginTop='12px';
+      cw.innerHTML='<b>Composition check:</b> the top '+C.reversals.length+' numeric gap'+(C.reversals.length===1?'':'s')+' were each tested against '+chk+' other field'+(chk===1?'':'s')+' and none reversed'+
+        (skp?', with '+skp+' test'+(skp===1?'':'s')+' skipped as too thin':'')+'. The gaps below survive holding those fields equal, which is not the same as being caused by the segment.';
+      box.appendChild(cw);
+    }
+  }
   if(!C.findings.length){
     box.appendChild(el('div','empty','No comparable fields. Segment comparison needs at least one numeric measure or a small category column.'));
     return;
@@ -4769,11 +5123,39 @@ function renderDrivers(){
     nb.innerHTML='<span><b>One side of this comparison is empty.</b> Every group reads as new or gone, so what follows is a listing rather than an explanation. In selection mode this happens when no filter is applied, because there is nothing left over to compare against.</span>';
     box.appendChild(nb);
   }
-  if(D.paradox && D.paradox.detected){
-    var pb=el('div','banner'); pb.style.marginTop='12px';
-    pb.innerHTML='<span><b>Every group moved one way and the overall average moved the other.</b> Each group that appears on both sides shows a '+esc(D.paradox.direction)+
-      ', yet the pooled average shows a '+esc(D.paradox.pooledDirection)+'. The mix underneath changed, so the headline figure is being carried by which groups grew rather than by any group getting better or worse.</span>';
+  if(D.paradox && (D.paradox.detected || D.paradox.partial)){
+    var px=D.paradox, pb=el('div','banner'); pb.style.marginTop='12px';
+    var lead = px.detected
+      ? '<b>Every group moved one way and the pooled average moved the other.</b> Each of the '+px.members.length+' groups on both sides shows a '+esc(px.direction)
+      : '<b>Most of the file moved against the pooled average.</b> Groups carrying '+pct(px.weightAgainst,0)+' of the rows show a '+esc(px.direction)+' while '+(px.groupsUp+px.groupsDown-(px.direction==='increase'?px.groupsUp:px.groupsDown))+' move the other way';
+    var poolNote = px.headlineIsPooled
+      ? 'The pooled figure quoted here is the same one in the strip above.'
+      : 'The pooled figure here is <code>'+f(px.pooledA)+'</code> against <code>'+f(px.pooledB)+'</code>, computed across groups present on both sides only, so it will not match the strip above, which includes groups that entered or left.';
+    var excl = px.excluded ? ' '+px.excluded+' group'+(px.excluded===1?' was':'s were')+' set aside as new, gone, or under the minimum of '+px.minCell+' rows a side.' : '';
+    pb.innerHTML='<span>'+lead+', yet the pooled average shows a '+esc(px.pooledDirection)+'. The mix underneath changed, so the headline is being carried by which groups grew rather than by any group getting better or worse. '+poolNote+excl+'</span>';
     box.appendChild(pb);
+  }
+  if(D.std && D.std.ok){
+    var sd=D.std;
+    var sIntro = sd.reversal!=='none'
+      ? 'Splitting by <b>'+esc(sd.dimName)+'</b> and holding its mix equal across both sides changes the answer, which is what a reversal looks like in arithmetic.'
+      : 'Holding the mix of <b>'+esc(sd.dimName)+'</b> equal across both sides does not overturn the headline, so the change is not being carried by composition on this field.';
+    box.appendChild(ssqCard('The split field, mix held equal',sIntro,[sd],f,function(h){ insSsq(h,f,D.rowsA.concat(D.rowsB)); }));
+  } else if(D.std && D.std.reason){
+    var sw=el('div','why'); sw.style.marginTop='12px';
+    sw.innerHTML='<b>Composition check skipped on '+esc(D.std.dimName)+':</b> '+esc(D.std.reason)+'. Standardizing on a field this thin would invent a difference rather than find one.';
+    box.appendChild(sw);
+  }
+  if(D.scan && D.scan.hits.length){
+    var scIntro='These other fields were not part of the split, yet the comparison reverses or nearly reverses inside them. Checked '+D.scan.checked+' field'+(D.scan.checked===1?'':'s')+', found '+D.scan.found+
+      (D.scan.skipped.length?', skipped '+D.scan.skipped.length+' as too thin to test':'')+'. Tap a row for the group by group arithmetic.';
+    box.appendChild(ssqCard('Reversals hiding in other fields',scIntro,D.scan.hits,f,function(h){ insSsq(h,f,D.rowsA.concat(D.rowsB)); }));
+  } else if(D.scan){
+    var nw=el('div','why'); nw.style.marginTop='12px';
+    nw.innerHTML='<b>Composition scan:</b> checked '+D.scan.checked+' other field'+(D.scan.checked===1?'':'s')+' for a hidden reversal and found none'+
+      (D.scan.skipped.length?', with '+D.scan.skipped.length+' skipped as too thin to test at '+D.scan.minCell+' rows a side':'')+
+      '. That is reassurance about the fields in this file, not about the ones it does not contain.';
+    box.appendChild(nw);
   }
   var mem = useRate ? rate.members : sum.members;
   var steps=[{ label:D.meta.aLabel, value: useRate?rate.meanA:sum.totalA, kind:'total' }];
@@ -5292,6 +5674,24 @@ function selfCheck(){
     for(i=0;i<P.cells.length;i++) for(j=0;j<P.cells[i].length;j++) rowsSeen+=P.cells[i][j].rows.length;
     add('Every pivot row lands in exactly one cell',rowsSeen+P.skipped===S.view.length,
       commas(rowsSeen)+' rows placed plus '+commas(P.skipped)+' skipped for a missing grouping field equals '+commas(S.view.length)+' in scope.');
+    var PRv=pivotReversal(P);
+    if(PRv.ok){
+      var bandBad=0, bl, blist=PRv.rows.concat(PRv.cols), bq, bc, blo, bhi;
+      for(bl=0;bl<blist.length;bl++){
+        var bnd=blist[bl]; blo=null; bhi=null;
+        for(bq=0;bq<(bnd.kind==='row'?P.cells[bnd.ix].length:P.cells.length);bq++){
+          bc = bnd.kind==='row' ? P.cells[bnd.ix][bq] : P.cells[bq][bnd.ix];
+          if(bc.n<PRv.minCell) continue;
+          var bv=bc.s/bc.n;
+          if(blo===null||bv<blo) blo=bv;
+          if(bhi===null||bv>bhi) bhi=bv;
+        }
+        if(blo===null) continue;
+        if(!(bnd.std>=blo-1e-9 && bnd.std<=bhi+1e-9)) bandBad++;
+      }
+      add('Reweighted pivot margins sit inside their own cell averages',bandBad===0,
+        'Checked '+blist.length+' reweighted margin'+(blist.length===1?'':'s')+' against the range of the cells each is built from and found '+bandBad+' outside it.');
+    }
   }
 
   if(S.drivers){
@@ -5305,6 +5705,34 @@ function selfCheck(){
       var mri=Dr.rate.mix+Dr.rate.rate+Dr.rate.interaction;
       add('Mix, rate and interaction add back to the rate change',near(mri,Dr.rate.rateDelta,1e-9),
         'Mix ('+fmt(Dr.rate.mix,4)+') plus rate ('+fmt(Dr.rate.rate,4)+') plus interaction ('+fmt(Dr.rate.interaction,4)+') gives '+fmt(mri,4)+' against a reported rate change of '+fmt(Dr.rate.rateDelta,4)+'.');
+    }
+
+    if(Dr.std && Dr.std.ok){
+      var sdv=Dr.std, wsum2=0, loA=null, hiA=null, loB=null, hiB=null, s2;
+      for(i=0;i<sdv.levels.length;i++){
+        s2=sdv.levels[i]; wsum2+=s2.wPool;
+        if(loA===null||s2.meanA<loA) loA=s2.meanA;
+        if(hiA===null||s2.meanA>hiA) hiA=s2.meanA;
+        if(loB===null||s2.meanB<loB) loB=s2.meanB;
+        if(hiB===null||s2.meanB>hiB) hiB=s2.meanB;
+      }
+      add('Standardization weights sum to one',near(wsum2,1,1e-9),
+        'The '+sdv.levels.length+' tested values of '+sdv.dimName+' carry weights totalling '+fmt(wsum2,9)+'.');
+      add('Standardized averages sit inside the group averages they are built from',
+        sdv.stdA>=loA-1e-9 && sdv.stdA<=hiA+1e-9 && sdv.stdB>=loB-1e-9 && sdv.stdB<=hiB+1e-9,
+        'Baseline standardizes to '+fmt(sdv.stdA,4)+' inside ['+fmt(loA,4)+', '+fmt(hiA,4)+'] and comparison to '+fmt(sdv.stdB,4)+' inside ['+fmt(loB,4)+', '+fmt(hiB,4)+']. A weighted average cannot fall outside its inputs.');
+    }
+    if(Dr.scan){
+      var badHit=0, hb, hbi;
+      for(hbi=0;hbi<Dr.scan.hits.length;hbi++){
+        hb=Dr.scan.hits[hbi];
+        if(hb.reversal==='full'){ if(!(hb.rawSign!==0 && ((hb.rawSign>0&&hb.down===hb.up+hb.down)||(hb.rawSign<0&&hb.up===hb.up+hb.down)))) badHit++; }
+        else if(hb.reversal==='standardized'){ if(!(hb.stdSign!==0 && hb.rawSign!==0 && hb.stdSign!==hb.rawSign)) badHit++; }
+        else if(hb.reversal==='partial'){ if(!(hb.weightAgainst>=0.6)) badHit++; }
+        else badHit++;
+      }
+      add('Every flagged reversal meets its own definition',badHit===0,
+        'Re-tested all '+Dr.scan.hits.length+' flagged field'+(Dr.scan.hits.length===1?'':'s')+' against the rule each was flagged under and found '+badHit+' that did not hold.');
     }
 
     var seenA={}, seenB={}, overlapBad=0, coverA=0, coverB=0, j3, k3;
@@ -6445,6 +6873,9 @@ window.SignalDesk={ S:S, ingest:ingest, profileView:profileView, parseCSV:parseC
   groupsFor:groupsFor, openInspector:openInspector, HELP:HELP,
   explain:explain, contribSum:contribSum, contribRate:contribRate, etaSquared:etaSquared,
   paradoxCheck:paradoxCheck, driverCandidates:driverCandidates,
+  ssqOpt:ssqOpt, ssqSide:ssqSide, ssqCompareOn:ssqCompareOn, ssqEligibleDims:ssqEligibleDims,
+  ssqScan:ssqScan, pivotReversal:pivotReversal, ssqWord:ssqWord, ssqCard:ssqCard, insSsq:insSsq,
+  SSQ_DEF:SSQ_DEF,
   aggregateRows:aggregateRows, groupsForRows:groupsForRows,
   renderDrivers:renderDrivers, refreshDriverBuilder:refreshDriverBuilder, drawWaterfall:drawWaterfall,
   driverRun:driverRun, driverRank:driverRank, driverPeriods:driverPeriods,
