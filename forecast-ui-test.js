@@ -59,7 +59,7 @@ eq('briefing still last', tabs[9].getAttribute('data-pane'), 'brief');
 ok('fcout inside forecast pane', doc.getElementById('pane-forecast').contains(doc.getElementById('fcout')));
 
 /* ---------- 2. help ---------- */
-eq('HELP length', SD.HELP.length, 71);
+eq('HELP length', SD.HELP.length, 80);
 var fh = SD.HELP.filter(function (h) { return h.c === 'Forecast'; });
 eq('five Forecast entries', fh.length, 5);
 ok('a Forecast entry names the smoothing family',
@@ -374,7 +374,7 @@ ok('workspace carries the forecast setup', !!parsed.forecast && parsed.forecast.
 ok('workspace carries the driver setup', !!parsed.drivers);
 
 doc.getElementById('help').onclick();
-eq('help guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 75);
+eq('help guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 80);
 var catBtns = doc.getElementById('help-cats').querySelectorAll('.val'), catNames = [];
 for (i = 0; i < catBtns.length; i++) catNames.push(catBtns[i].textContent);
 ok('Forecast category offered in the guide', catNames.indexOf('Forecast') >= 0, catNames.join('|'));
