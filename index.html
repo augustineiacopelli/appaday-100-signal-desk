@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="manifest" href="https://augustineiacopelli.github.io/appaday/manifests/100.webmanifest">
 <script src="https://augustineiacopelli.github.io/appaday/save.js" defer></script>
+<script src="https://augustineiacopelli.github.io/appaday/keys.js" data-app="100" data-legacy-key="signaldesk-key" data-accent="#B8860B" defer></script>
 <title>Signal Desk | AppADay 100</title>
 <meta name="description" content="Drop in any CSV and get a full analyst workbench: type inference, column profiling, data quality scoring, correlation analysis, auto-proposed charts, cohort retention, and an AI executive briefing.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -639,18 +640,13 @@ footer a:hover{color:var(--sig)}
 <div class="veil" id="veil">
   <div class="modal" role="dialog" aria-modal="true" aria-label="Settings">
     <h2>Settings</h2>
-    <div class="row">
-      <label for="k">Anthropic API key</label>
-      <input type="password" id="k" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
-      <div class="hint">Stored in this browser only, used for the briefing, and never committed anywhere. Get one at console.anthropic.com.</div>
-    </div>
+    <div class="row" id="keyMount"><div class="hint">The key manager is loading. If this stays, check your connection and reload.</div></div>
     <div class="row">
       <label for="sess">Desk name</label>
       <input type="text" id="sess" placeholder="Analytics desk" spellcheck="false">
       <div class="hint">Appears on the exported report.</div>
     </div>
     <div class="btnrow" style="justify-content:flex-end;margin-top:16px">
-      <button class="btn" id="kclear">Forget key</button>
       <button class="btn pri" id="ksave">Save</button>
     </div>
   </div>
@@ -805,7 +801,7 @@ footer a:hover{color:var(--sig)}
 'use strict';
 
 var CLAUDE_MODEL = 'claude-sonnet-5';
-var K_KEY = 'signaldesk-key', K_SESS = 'signaldesk-sess', K_OPT = 'signaldesk-opt';
+var K_SESS = 'signaldesk-sess', K_OPT = 'signaldesk-opt';
 
 var DEFAULT_OPT = {
   dateOrder:'auto', decimal:'auto',
@@ -3524,9 +3520,10 @@ function mdToHtml(t){
   if(inUl) out.push('</ul>');
   return out.join('');
 }
-function runBrief(){
-  var key=lsGet(K_KEY);
-  if(!key){ openSettings(); toast('Add an API key first.'); return; }
+async function runBrief(){
+  if(!window.AppKeys){ toast('The key manager did not load. Check your connection and reload.'); return; }
+  var key=await window.AppKeys.get();
+  if(!key){ toast('Add your Claude API key with the gear button first.'); return; }
   var box=$('briefout');
   clear(box);
   var load=el('div','empty');
@@ -6697,7 +6694,7 @@ function readFile(f){
 
 /* ---------------- settings ---------------- */
 function openSettings(){
-  $('k').value=lsGet(K_KEY);
+  if(window.AppKeys) window.AppKeys.mountSettings($('keyMount'));
   $('sess').value=lsGet(K_SESS);
   $('veil').classList.add('on');
 }
@@ -6712,12 +6709,9 @@ function init(){
   $('ins-filter').onclick=insApplyFilter;
   $('veil').onclick=function(e){ if(e.target===$('veil')) closeSettings(); };
   $('ksave').onclick=function(){
-    var v=$('k').value.trim();
-    if(v) lsSet(K_KEY,v);
     lsSet(K_SESS,$('sess').value.trim());
     closeSettings(); toast('Settings saved');
   };
-  $('kclear').onclick=function(){ lsDel(K_KEY); $('k').value=''; toast('Key forgotten'); };
   document.addEventListener('keydown',function(e){
     if(e.key==='Escape'){ closeSettings(); closeInspector(); closeHelp(); closeData(); closeOv(); closeFix(); }
   });
