@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="manifest" href="https://augustineiacopelli.github.io/appaday/manifests/100.webmanifest">
 <script src="https://augustineiacopelli.github.io/appaday/save.js" defer></script>
+<script src="https://augustineiacopelli.github.io/appaday/models.js"></script>
 <script src="https://augustineiacopelli.github.io/appaday/keys.js" data-app="100" data-legacy-key="signaldesk-key" data-accent="#B8860B" defer></script>
 <title>Signal Desk | AppADay 100</title>
 <meta name="description" content="Drop in any CSV and get a full analyst workbench: type inference, column profiling, data quality scoring, correlation analysis, auto-proposed charts, cohort retention, and an AI executive briefing.">
@@ -800,7 +801,7 @@ footer a:hover{color:var(--sig)}
 (function(){
 'use strict';
 
-var CLAUDE_MODEL = 'claude-sonnet-5';
+var CLAUDE_MODEL = (window.AppModels ? window.AppModels.id('sonnet') : '');
 var K_SESS = 'signaldesk-sess', K_OPT = 'signaldesk-opt';
 
 var DEFAULT_OPT = {
@@ -6890,15 +6891,6 @@ window.SignalDesk={ S:S, ingest:ingest, profileView:profileView, parseCSV:parseC
 
 })();
 
-async function getModel(tier = 'sonnet') {
-  try {
-    const response = await fetch('../config.json');
-    const config = await response.json();
-    return config.models[tier];
-  } catch {
-    return 'claude-sonnet-5-5';
-  }
-}
 </script>
 </body>
 </html>
