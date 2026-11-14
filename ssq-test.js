@@ -321,7 +321,7 @@ ok('payload still carries mix, rate and interaction',
   !!(pay.changeDecomposition && pay.changeDecomposition.mixRateInteraction));
 
 /* ---------- 13. help ---------- */
-eq('HELP length', SD.HELP.length, 80);
+eq('HELP length', SD.HELP.length, 86);
 var comp = SD.HELP.filter(function (h) { return h.c === 'Composition'; });
 eq('five Composition entries', comp.length, 5);
 ok('a Composition entry names the paradox',
@@ -339,7 +339,7 @@ ok('no ctx.ellipse', html.indexOf('ctx.ellipse') < 0);
 ok('no window.confirm', html.indexOf('window.confirm') < 0);
 ok('source is ASCII clean', !/[^\x00-\x7F]/.test(html));
 eq('exactly two portfolio backlinks',
-  (html.match(/https:\/\/augustineiacopelli\.github\.io\/appaday\//g) || []).length, 2);
+  (html.match(/<a [^>]*href="https:\/\/augustineiacopelli\.github\.io\/appaday\/"/g) || []).length, 2);
 
 /* ---------- report ---------- */
 console.log('\npass ' + pass + '  fail ' + fail);

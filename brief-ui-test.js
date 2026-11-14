@@ -42,7 +42,7 @@ eq('panes unchanged', doc.querySelectorAll('.pane').length, 10);
 eq('tabs unchanged', doc.querySelectorAll('#tabs .tab').length, 10);
 
 /* ---------- 2. structure and exports ---------- */
-eq('HELP length', SD.HELP.length, 75);
+eq('HELP length', SD.HELP.length, 86);
 var ai = SD.HELP.filter(function (h) { return h.c === 'AI'; });
 eq('seven AI entries', ai.length, 7);
 ok('an AI entry explains the question box',
@@ -55,7 +55,7 @@ ok('an AI entry denies the context is fact',
   ai.some(function (h) { return /unverified claim/.test(h.a) && /never overrides a computed figure/.test(h.a); }));
 ok('every new AI entry is substantive', ai.every(function (h) { return h.q && h.a && h.a.length > 80; }));
 eq('drivers entries survive', SD.HELP.filter(function (h) { return h.c === 'Drivers'; }).length, 5);
-eq('forecast entries survive', SD.HELP.filter(function (h) { return h.c === 'Forecast'; }).length, 5);
+eq('forecast entries survive', SD.HELP.filter(function (h) { return h.c === 'Forecast'; }).length, 6);
 ok('briefPrompt exported', typeof SD.briefPrompt === 'function');
 ok('briefPayload still exported', typeof SD.briefPayload === 'function');
 
@@ -230,7 +230,7 @@ ok('verifier battery unchanged in size', checks.length >= 10, String(checks.leng
 SD.refresh();
 ok('refresh survives', !!S.profile);
 doc.getElementById('help').onclick();
-eq('guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 75);
+eq('guide lists every entry', doc.getElementById('help-list').querySelectorAll('.help-item').length, 86);
 var cats = [], btns = doc.getElementById('help-cats').querySelectorAll('.val');
 for (i = 0; i < btns.length; i++) cats.push(btns[i].textContent);
 ok('AI category still offered', cats.indexOf('AI') >= 0, cats.join('|'));

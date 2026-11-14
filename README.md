@@ -37,6 +37,18 @@ Signal Desk reads a spreadsheet the way an analyst would on first contact. It sn
 - **Cohorts** building a retention triangle, cumulative value per entity, average retention curve and cohort sizes from any repeating entity plus a date
 - **Briefing** written by Claude from the computed profile only
 
+### Where to look first
+
+The Overview opens with a ranked list of the analyses most likely to change a decision on the file in front of you. It is computed, not written: every item is scored from evidence in the rows in scope, states that evidence in plain figures, carries a caution about what it does not show, and has a button that sets the right tab up and runs it. A second button opens the arithmetic behind its rank.
+
+Everything is built around a **decision measure**, picked automatically with a preference for money and for fields named like revenue, enrollment or total, and changeable from the card. Quantities that add up are totalled. Rates, scores and prices are averaged, because a sum of them means nothing. A yes or no outcome such as retained or converted can be the decision measure too, read as a rate.
+
+Nine analyses are evaluated. **Data quality** leads whenever the file or the decision measure is unfit to decide on. **Segment gaps** run a one-way analysis of variance of the measure across every category field and rank on the share of variation explained, adjusted for the number of groups. **Reversals** take the highest and lowest group of each field that separates the measure and test whether the gap survives holding every other field equal, and a headline that flips ranks above any plain finding. **The latest move** compares the last two complete periods against the usual swing between periods. **Forecast** is recommended only when a method beats repeating the last value on held-back periods. **Correlation** requires the relationship to survive a rank-based check, so a few extreme rows cannot carry it, and reports a pair above 0.95 as one measure counted twice rather than as a finding. **Concentration**, **retention** and **whether the mean is a fair summary** complete the set.
+
+Three guards keep the ranking honest. Every significance test is corrected for the number of fields scanned to find the result, so searching widely does not manufacture findings. Sample size gates each item. And every analysis that was checked and set aside is listed with its reason, because nothing standing out is a finding too. A file of pure noise produces no segment, reversal or correlation recommendation, and the suite asserts that.
+
+The ranking is passed to the Briefing, which is told to build its next steps from it rather than invent its own, and it is written into the exported report.
+
 ### Explaining a change
 
 Every other tab tells you what a number is. The Drivers tab tells you where a change in it came from. Choose two sides to compare, choose a field to split by, and the change is decomposed into the exact contribution of each group.
@@ -73,6 +85,8 @@ The methods are not simply offered side by side. The most recent stretch of hist
 
 Around the point forecast sits a 95 percent prediction interval built from the spread of the chosen model's own residuals and widened by the square root of the horizon, so it opens out with distance the way real uncertainty does. Classical decomposition splits the series into trend, seasonal and residual components alongside it, because residuals that still drift or repeat on a cycle are the signal that the model is missing structure and the interval is too narrow.
 
+A period at either end of the file that the data only partly covers is left out of a total or a count, and the surface says which and why. Twelve days of March is not a March, and counting it as one reads as a collapse that never happened. The test is relative, so a file with one row a month is not mistaken for unfinished. Averages keep such periods, and a selector overrides the default.
+
 Periods with no rows are not skipped, because a forecast needs an unbroken grid to measure a trend or a season against. Totals and counts read as zero, averages are interpolated between neighbours, and the count of filled periods is disclosed. Every observed period opens to the rows behind it and its residual; every projected period opens to the arithmetic that produced it and states plainly that it has no rows because it has not happened.
 
 The guide says, and the surface repeats, that a forecast extrapolates the pattern already in the history. It cannot see a price change, a competitor, a policy, or a shock that has not occurred, and a backtest is evidence that a method would have been right recently rather than a guarantee that it will be.
@@ -91,7 +105,7 @@ Every statistic, bar, point, cell and tile opens an inspector showing how the nu
 
 ### Verification
 
-A **Verify this analysis** button runs up to twenty-two reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, confirms cohort and pivot totals reconcile three separate ways, confirms driver contributions sum to the total change and that mix, rate and interaction add back to the change in the average, confirms every row lands in exactly one driver group with no overlap and no loss, confirms the standardization weights sum to one and that every standardized average falls inside the group averages it is built from, re-tests every flagged reversal against the rule it was flagged under, confirms each reweighted pivot margin sits inside the range of the cells it is built from, independently rescores every backtested forecasting method against the held-back periods and confirms the selected one really did win, confirms every prediction interval contains its own point forecast and never narrows as it looks further ahead, confirms the forecast series is an unbroken evenly spaced grid, and proves the source file is untouched by any fix.
+A **Verify this analysis** button runs up to twenty-three reconciliation checks against the loaded data and reports both answers side by side, not just a pass mark. It re-sums every column independently, counts values above and below the median, confirms present plus missing equals the row count, checks histogram bins account for every value, confirms grouped totals add back to the ungrouped total, recomputes group averages over the values present rather than the rows, tests the correlation matrix for symmetry and bounds, reproduces the duplicate count, checks the quality score equals 100 minus its penalties, confirms cohort and pivot totals reconcile three separate ways, confirms driver contributions sum to the total change and that mix, rate and interaction add back to the change in the average, confirms every row lands in exactly one driver group with no overlap and no loss, confirms the standardization weights sum to one and that every standardized average falls inside the group averages it is built from, re-tests every flagged reversal against the rule it was flagged under, confirms each reweighted pivot margin sits inside the range of the cells it is built from, independently rescores every backtested forecasting method against the held-back periods and confirms the selected one really did win, confirms every prediction interval contains its own point forecast and never narrows as it looks further ahead, confirms the forecast series is an unbroken evenly spaced grid, and proves the source file is untouched by any fix.
 
 ### Control
 
@@ -115,7 +129,7 @@ Large files parse in chunks with a progress bar, wide files render column cards 
 3. Tap any number that looks surprising
 4. Press Verify this analysis before you act on anything
 
-A built-in guide behind the `?` icon covers 71 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
+A built-in guide behind the `?` icon covers 86 topics, from what a histogram is telling you to why the median beats the mean on skewed money data.
 
 ## AI briefing
 
@@ -132,6 +146,22 @@ The composition layer adds a suite of 134 checks built on a textbook ward fixtur
 The forecasting layer adds three more. A math suite of 34 checks pins every method to hand-computed fixtures: a perfect straight line whose slope, intercept and projection the linear fit must recover exactly, a constructed trend-plus-seasonal series that Holt-Winters recovers to within three units, a decomposition that must reconstruct its source series to nine decimal places with seasonal indices centred on zero, and metric arithmetic checked against values computed by hand. A surface suite of 154 checks covers the pane, the builder, the interval discipline, the backtest honesty, the method override and its fallback, and the guard rails. An edge suite of 24 checks exercises flat, gapped, negative and too-short series, confirming a constant series forecasts flat with a vanishing interval, a series with four missing months still produces an unbroken grid, and both refusal paths explain themselves rather than crashing.
 
 A configuration sweep runs all 192 combinations of grain, aggregate, method, season length and horizon at both 375px and desktop widths, asserting every point forecast and interval bound is finite and the verifier stays clean in each. Canvas instrumentation across roughly one hundred and eleven thousand draw calls in that sweep confirms no non-finite geometry reaches the renderer at either width.
+
+## Audit, November 2026
+
+A full review of the parsing and arithmetic found and fixed the following, each now pinned by `audit-test.js` (155 checks).
+
+- **Averages divided by rows, not values.** Charts, the pivot, the driver decomposition and the forecast series all counted a blank cell as a zero when averaging, which pulled every average down in proportion to how much was missing. They now divide by the values present, and the verifier recomputes this independently.
+- **The Other bar of an average was a sum of averages.** It is now the average of the folded rows.
+- **Impossible dates rolled forward.** 30 February became 1 March and month 13 became the following January. They are now refused. Trailing text after a date is refused, and two-digit years, AM and PM times, dotted European dates, year and month, and month name and year are now read.
+- **One column, two date orders.** With 13/01 read day first and 05/01 read month first in the same column, a month of data scattered across the year. Each column now settles its own order from its unambiguous values, a column with none is flagged, and a column that contradicts itself is flagged as a fault.
+- **Commas read as nothing.** 3,14 became 314 and 1,2,3 became 123. A comma is now a thousands separator only in groups of three, and a column that only parses with comma decimals is read that way and disclosed.
+- **Values named like JavaScript built-ins.** A cell reading constructor or toString corrupted its group count, vanished from driver groups and leaked through category filters.
+- **A stray quote swallowed rows.** A quotation mark inside an unquoted field, such as 5" pipe, opened a quoted section that ran to the next quote.
+- **Briefing output was inserted as markup.** Model text is now escaped before formatting.
+- **Unfinished end periods** distorted forecasts and period comparisons, as described above.
+- **Cohorts on a cycle longer than the grain** reported total churn after one month. Term data now reports the first period in which anyone returns.
+- Smaller corrections: the residual share of the decomposition compared two different sets of periods, outlier wording named the wrong rule when the rule was changed, proposed charts summed rates and scores, and negative money read as $-5.
 
 ## Credits
 

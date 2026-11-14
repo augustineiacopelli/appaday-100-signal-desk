@@ -341,6 +341,31 @@ footer a:hover{color:var(--sig)}
 @media (prefers-reduced-motion:reduce){
   *{animation-duration:.001ms !important; transition-duration:.001ms !important}
 }
+/* ---------- recommendations ---------- */
+.rec-head{display:flex; gap:12px; align-items:flex-end; justify-content:space-between; flex-wrap:wrap; margin-bottom:10px}
+.rec-lede{margin:0; font-size:13px; color:var(--dim)}
+.rec-focus{min-width:min(220px,70vw)}
+.rec-focus select{width:100%; min-height:44px}
+.rec{display:flex; gap:11px; align-items:flex-start; background:var(--raise); border:1px solid var(--line);
+  border-left:3px solid var(--line); border-radius:8px; padding:11px 12px; margin-top:8px}
+.rec.high{border-left-color:var(--coral)}
+.rec.mid{border-left-color:var(--amber)}
+.rec.low{border-left-color:var(--faint)}
+.rec-n{font-family:var(--mono); font-weight:600; font-size:13px; color:var(--ink); background:var(--sig);
+  min-width:26px; height:26px; border-radius:6px; display:grid; place-items:center; flex:none}
+.rec-b{min-width:0; flex:1}
+.rec-t{display:flex; gap:7px; align-items:center; flex-wrap:wrap}
+.rec-ttl{font-weight:600; font-size:clamp(14px,1.6vw,15px); line-height:1.35; color:var(--txt)}
+.rec-w{margin:6px 0 0; font-size:13px; color:var(--dim)}
+.rec-c{margin:5px 0 0; font-size:12px; color:var(--faint); font-style:italic}
+.rec-a{display:flex; gap:8px; flex-wrap:wrap; margin-top:9px}
+.rec-a .btn{min-height:44px}
+.rec-skip{margin-top:10px; font-size:13px; color:var(--dim)}
+.rec-skip summary{cursor:pointer; min-height:44px; display:flex; align-items:center; font-family:var(--mono);
+  font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint)}
+.rec-skip summary:hover{color:var(--sig)}
+.rec-skip ul{margin:0; padding-left:18px}
+.rec-skip li{margin:4px 0}
 </style>
 </head>
 <body>
@@ -435,6 +460,17 @@ footer a:hover{color:var(--sig)}
 
   <div class="pane on" id="pane-overview">
     <div class="tip"><span><b>Overview is the health check.</b> The score out of one hundred summarises how clean the file is, and every finding beside it is tappable. So is the score itself, and each bar in the chart.</span><button class="tip-x" aria-label="Hide tips">&#215;</button></div>
+    <div class="card" id="reccard" style="margin-bottom:12px">
+      <div class="rec-head">
+        <div>
+          <p class="eyebrow">Where to look first</p>
+          <p class="rec-lede">The analyses most likely to change a decision on this file, ranked from evidence computed on the rows in scope.</p>
+        </div>
+        <div class="rec-focus"><label class="eyebrow" for="rec-focus">Decision measure</label><select id="rec-focus"></select></div>
+      </div>
+      <div id="reclist"></div>
+      <div class="why" style="margin-top:10px"><b>Reading it:</b> each item is scored on the size of the effect, on a significance test corrected for how many fields were scanned to find it, and on how many rows stand behind it. It ranks where to look. It does not decide for you, and it changes when the filters do.</div>
+    </div>
     <div class="grid g2">
       <div class="card">
         <p class="eyebrow">Data quality</p>
@@ -602,6 +638,8 @@ footer a:hover{color:var(--sig)}
           <select id="f-model"><option value="auto">Pick the best automatically</option><option value="naive">Naive</option><option value="snaive">Seasonal naive</option><option value="ma">Moving average</option><option value="linear">Linear trend</option><option value="ses">Simple exponential smoothing</option><option value="holt">Holt linear trend</option><option value="hw">Holt-Winters additive</option></select></div>
         <div><label class="eyebrow" for="f-h">Horizon</label>
           <select id="f-h"><option value="3">3 periods</option><option value="6">6 periods</option><option value="12">12 periods</option><option value="24">24 periods</option></select></div>
+        <div><label class="eyebrow" for="f-partial">Unfinished periods</label>
+          <select id="f-partial"><option value="trim">Leave out</option><option value="keep">Keep</option></select></div>
         <div><button class="btn pri" id="f-run">Forecast</button></div>
       </div>
     </div>
@@ -673,16 +711,16 @@ footer a:hover{color:var(--sig)}
     <div class="row">
       <label for="o-date">Ambiguous dates like 03/04/2026</label>
       <select id="o-date">
-        <option value="auto">Month first (US)</option>
+        <option value="auto">Work it out for each column</option>
         <option value="mdy">Month first (US)</option>
         <option value="dmy">Day first (rest of the world)</option>
       </select>
-      <div class="hint">Only applies when both numbers are 12 or less. Anything unambiguous is read correctly either way.</div>
+      <div class="hint">Left on automatic, a column that shows any day above 12 settles its own order, and a column that never does is read month first and flagged. Choose an order here to force it for the whole file.</div>
     </div>
     <div class="row">
       <label for="o-dec">Decimal separator</label>
       <select id="o-dec">
-        <option value="auto">Point, comma groups thousands</option>
+        <option value="auto">Work it out for each column</option>
         <option value="dot">Point, comma groups thousands</option>
         <option value="comma">Comma, point groups thousands</option>
       </select>
@@ -858,6 +896,10 @@ function lsDel(k){ try{ window.localStorage.removeItem(k); }catch(e){} }
 function $(id){ return document.getElementById(id); }
 function el(tag,cls,txt){ var n=document.createElement(tag); if(cls) n.className=cls; if(txt!==undefined) n.textContent=txt; return n; }
 function clear(n){ while(n && n.firstChild){ n.removeChild(n.firstChild); } }
+/* maps keyed by values from the file must not inherit from Object.prototype, or a cell that reads
+   'constructor' or 'toString' collides with a built-in and its group is miscounted or lost */
+function dict(){ return Object.create(null); }
+function has(o,k){ return !!o && Object.prototype.hasOwnProperty.call(o,k); }
 var toastT = null;
 function toast(msg){
   var t=$('toast'); t.textContent=msg; t.classList.add('on');
@@ -918,7 +960,7 @@ function parseCSV(text,delim){
       }
       field+=ch; i++; continue;
     }
-    if(ch==='"'){ inQ=true; i++; continue; }
+    if(ch==='"' && field===''){ inQ=true; i++; continue; }
     if(ch===delim){ row.push(field); field=''; i++; continue; }
     if(ch==='\r'){ i++; continue; }
     if(ch==='\n'){ row.push(field); rows.push(row); row=[]; field=''; i++; continue; }
@@ -931,12 +973,20 @@ function parseCSV(text,delim){
 
 /* ---------------- value parsers ---------------- */
 var NUM_RE = /^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?$/;
-function normNum(t){
-  var dec = (S.opt && S.opt.decimal) || 'auto';
-  if(dec==='comma') return t.replace(/\./g,'').replace(/,/g,'.');
-  return t.replace(/,/g,'');
+var GROUP_RE = /^[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?(?:[eE][-+]?\d+)?$/;
+var COMMA_DEC_RE = /^[-+]?(?:\d{1,3}(?:\.\d{3})+|\d+),\d+$/;
+function normNum(t,dec){
+  dec = dec || (S.opt && S.opt.decimal) || 'auto';
+  if(dec==='comma'){
+    if(!/^[-+]?(?:\d{1,3}(?:\.\d{3})+|\d*)(?:,\d+)?(?:[eE][-+]?\d+)?$/.test(t)) return null;
+    return t.replace(/\./g,'').replace(/,/g,'.');
+  }
+  /* a comma is only a thousands separator when it sits in groups of three. Anything else, such as
+     3,14 or 1,2,3, is not a number in this notation and must not be read as 314 or 123 */
+  if(t.indexOf(',')>=0){ if(!GROUP_RE.test(t)) return null; return t.replace(/,/g,''); }
+  return t;
 }
-function parseNum(s){
+function parseNum(s,dec){
   if(s===null||s===undefined) return null;
   var t=String(s).trim();
   if(!t) return null;
@@ -944,38 +994,67 @@ function parseNum(s){
   if(/^\(.*\)$/.test(t)){ neg=true; t=t.slice(1,-1); }
   if(/^[-+]?[$\u00A3\u20AC\u00A5]/.test(t)){ cur=true; t=t.replace(/[$\u00A3\u20AC\u00A5]/,''); }
   if(/%$/.test(t)){ per=true; t=t.slice(0,-1); }
-  t=normNum(t.replace(/\s/g,''));
-  if(!NUM_RE.test(t)) return null;
+  t=normNum(t.replace(/\s/g,''),dec);
+  if(t===null||!NUM_RE.test(t)) return null;
   var v=parseFloat(t);
   if(!isFinite(v)) return null;
   if(neg) v=-v;
   return { v:v, cur:cur, per:per };
 }
 var MON = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-function parseDate(s){
+function mkDate(y,mo,d,h,mi,se){
+  /* Date.UTC silently rolls an impossible date forward, so 30 Feb becomes 1 Mar. Refuse it instead */
+  y=+y; mo=+mo; d=+d; h=+(h||0); mi=+(mi||0); se=+(se||0);
+  if(!(mo>=1&&mo<=12&&d>=1&&d<=31&&h>=0&&h<=23&&mi>=0&&mi<=59&&se>=0&&se<=59)) return null;
+  var t=Date.UTC(y,mo-1,d,h,mi,se), dt=new Date(t);
+  if(y>=0&&y<100) dt.setUTCFullYear(y);
+  if(dt.getUTCMonth()!==mo-1||dt.getUTCDate()!==d) return null;
+  return y>=0&&y<100 ? dt.getTime() : t;
+}
+function year2(y){ y=+y; return y<100 ? (y<70 ? 2000+y : 1900+y) : y; }
+var DMY_RE = /^(\d{1,2})([\/.-])(\d{1,2})\2(\d{4}|\d{2})(?:[T ,]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp])\.?[Mm]?\.?)?$|^(\d{1,2})([\/.-])(\d{1,2})\10(\d{4}|\d{2})(?:[T ,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/;
+function splitDMY(t){
+  var m=DMY_RE.exec(t);
+  if(!m) return null;
+  var o = m[1]!==undefined ? { a:+m[1], sep:m[2], b:+m[3], y:m[4], h:m[5], mi:m[6], se:m[7], ap:m[8] }
+                           : { a:+m[9], sep:m[10], b:+m[11], y:m[12], h:m[13], mi:m[14], se:m[15], ap:null };
+  if(o.sep==='.' && o.y.length!==4) return null;
+  if(o.h!==undefined && o.ap){
+    var hh=+o.h;
+    if(hh<1||hh>12) return null;
+    o.h = (o.ap.toLowerCase()==='p') ? (hh===12?12:hh+12) : (hh===12?0:hh);
+  }
+  return o;
+}
+function parseDate(s,order){
   if(s===null||s===undefined) return null;
   var t=String(s).trim();
-  if(!t || t.length<6 || t.length>32) return null;
+  if(!t || t.length<6 || t.length>36) return null;
   var m;
-  m=/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(t);
-  if(m) return Date.UTC(+m[1],+m[2]-1,+m[3],+(m[4]||0),+(m[5]||0),+(m[6]||0));
+  m=/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(?:Z|[+-]\d{2}:?\d{2})?)?$/.exec(t);
+  if(m) return mkDate(m[1],m[2],m[3],m[4],m[5],m[6]);
   m=/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(t);
-  if(m) return Date.UTC(+m[1],+m[2]-1,+m[3]);
-  m=/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:[T ](\d{1,2}):(\d{2}))?$/.exec(t);
-  if(m){
-    var a=+m[1], b=+m[2], order=(S.opt&&S.opt.dateOrder)||'auto';
-    if(a>12 && b<=12) return Date.UTC(+m[3],b-1,a,+(m[4]||0),+(m[5]||0));
-    if(b>12 && a<=12) return Date.UTC(+m[3],a-1,b,+(m[4]||0),+(m[5]||0));
+  if(m) return mkDate(m[1],m[2],m[3]);
+  m=/^(\d{4})-(\d{1,2})$/.exec(t);
+  if(m) return mkDate(m[1],m[2],1);
+  var q=splitDMY(t);
+  if(q){
+    var a=q.a, b=q.b, y=year2(q.y);
+    order=order||(S.opt&&S.opt.dateOrder)||'auto';
+    if(a>12 && b<=12) return mkDate(y,b,a,q.h,q.mi,q.se);
+    if(b>12 && a<=12) return mkDate(y,a,b,q.h,q.mi,q.se);
     if(a<=12 && b<=12){
-      if(order==='dmy') return Date.UTC(+m[3],b-1,a,+(m[4]||0),+(m[5]||0));
-      return Date.UTC(+m[3],a-1,b,+(m[4]||0),+(m[5]||0));
+      if(order==='dmy') return mkDate(y,b,a,q.h,q.mi,q.se);
+      return mkDate(y,a,b,q.h,q.mi,q.se);
     }
     return null;
   }
-  m=/^(\d{1,2})[ -]([A-Za-z]{3})[a-z]*[ -](\d{4})$/.exec(t);
-  if(m && MON[m[2].toLowerCase()]!==undefined) return Date.UTC(+m[3],MON[m[2].toLowerCase()],+m[1]);
-  m=/^([A-Za-z]{3})[a-z]*[ ](\d{1,2}),?[ ](\d{4})$/.exec(t);
-  if(m && MON[m[1].toLowerCase()]!==undefined) return Date.UTC(+m[3],MON[m[1].toLowerCase()],+m[2]);
+  m=/^(\d{1,2})[ -]([A-Za-z]{3})[a-z]*\.?[ -](\d{4})$/.exec(t);
+  if(m && MON[m[2].toLowerCase()]!==undefined) return mkDate(m[3],MON[m[2].toLowerCase()]+1,m[1]);
+  m=/^([A-Za-z]{3})[a-z]*\.?[ ](\d{1,2}),?[ ](\d{4})$/.exec(t);
+  if(m && MON[m[1].toLowerCase()]!==undefined) return mkDate(m[3],MON[m[1].toLowerCase()]+1,m[2]);
+  m=/^([A-Za-z]{3})[a-z]*\.?[ -](\d{4})$/.exec(t);
+  if(m && MON[m[1].toLowerCase()]!==undefined) return mkDate(m[2],MON[m[1].toLowerCase()]+1,1);
   return null;
 }
 var BOOLS = {'true':1,'false':0,'yes':1,'no':0,'y':1,'n':0,'t':1,'f':0};
@@ -1061,7 +1140,8 @@ function ols(xs,ys){
 function classify(name,raw,force){
   var n=raw.length, nonEmpty=0, i, v;
   var numOk=0, dateOk=0, boolOk=0, cur=0, per=0, intOk=0;
-  var uniq={}, uniqN=0;
+  var dayFirst=0, monFirst=0, slashN=0;
+  var uniq=dict(), uniqN=0;
   for(i=0;i<n;i++){
     v = raw[i]===null||raw[i]===undefined ? '' : String(raw[i]).trim();
     if(isMissing(v)) continue;
@@ -1070,11 +1150,39 @@ function classify(name,raw,force){
     uniq[v]++;
     var p=parseNum(v);
     if(p){ numOk++; if(p.cur) cur++; if(p.per) per++; if(p.v===Math.round(p.v)) intOk++; }
-    if(parseDate(v)!==null) dateOk++;
+    if(parseDate(v)!==null){
+      dateOk++;
+      var sq=splitDMY(v);
+      if(sq){ slashN++; if(sq.a>12) dayFirst++; else if(sq.b>12) monFirst++; }
+    }
     if(parseBool(v)!==null) boolOk++;
   }
+  /* one column has one day and month order. Reading 13/01 as day first and 05/01 as month first in
+     the same column scatters a single month of data across the year, so settle the order per column */
+  var c0ord=null, c0amb=false, c0conf=false;
+  if(((S.opt&&S.opt.dateOrder)||'auto')==='auto' && slashN>0){
+    if(dayFirst>0 && monFirst===0) c0ord='dmy';
+    else if(monFirst>0 && dayFirst===0) c0ord='mdy';
+    else if(dayFirst>0 && monFirst>0) c0conf=true;
+    else c0amb=true;
+  }
+  /* a column that fails as point-decimal numbers but reads cleanly with a comma as the decimal mark,
+     and holds at least one value that can only be a comma decimal, is a comma-decimal column */
+  var c0dec=null;
+  if(((S.opt&&S.opt.decimal)||'auto')==='auto' && nonEmpty>0 && numOk/nonEmpty<0.9){
+    var cN=0, cCur=0, cPer=0, cInt=0, sure=0, uk;
+    for(uk in uniq){
+      var pc2=parseNum(uk,'comma');
+      if(!pc2) continue;
+      cN+=uniq[uk]; if(pc2.cur) cCur+=uniq[uk]; if(pc2.per) cPer+=uniq[uk]; if(pc2.v===Math.round(pc2.v)) cInt+=uniq[uk];
+      var bare=uk.replace(/[$\u00A3\u20AC\u00A5%()\s]/g,'');
+      if(COMMA_DEC_RE.test(bare) && !GROUP_RE.test(bare)) sure+=uniq[uk];
+    }
+    if(cN/nonEmpty>=0.9 && sure>0){ c0dec='comma'; numOk=cN; cur=cCur; per=cPer; intOk=cInt; }
+  }
   var c = { name:name, nonEmpty:nonEmpty, miss:n-nonEmpty, uniq:uniqN,
-    uniqRatio: nonEmpty ? uniqN/nonEmpty : 0, counts:uniq };
+    uniqRatio: nonEmpty ? uniqN/nonEmpty : 0, counts:uniq,
+    dord:c0ord, dateAmbig:c0amb, dateConflict:c0conf, dec:c0dec };
   if(force==='exclude'){ c.type='excluded'; c.role='excluded'; c.forced=true; return c; }
   if(nonEmpty===0){ c.type='empty'; c.role='dimension'; return c; }
   var numR=numOk/nonEmpty, dateR=dateOk/nonEmpty, boolR=boolOk/nonEmpty;
@@ -1120,7 +1228,7 @@ function ingestTable(table,delim,name){
   var i;
   if(table.length<2) throw new Error('Needs a header row and at least one data row.');
   var headers=table[0].map(function(h,j){ var t=String(h).trim(); return t||('column_'+(j+1)); });
-  var seen={};
+  var seen=dict();
   for(i=0;i<headers.length;i++){
     if(seen[headers[i]]!==undefined){
       var base=headers[i], nh=base+'_'+seen[base];
@@ -1170,8 +1278,8 @@ function derive(){
     for(k=0;k<S.rows.length;k++){
       var t=raw[k]===null||raw[k]===undefined?'':String(raw[k]).trim();
       if(isMissing(t)){ c.vals[k]=null; continue; }
-      if(c.type==='number'){ var pn=parseNum(t); c.vals[k]= pn ? pn.v : null; }
-      else if(c.type==='date'){ c.vals[k]=parseDate(t); }
+      if(c.type==='number'){ var pn=parseNum(t,c.dec||undefined); c.vals[k]= pn ? pn.v : null; }
+      else if(c.type==='date'){ c.vals[k]=parseDate(t,c.dord||undefined); }
       else if(c.type==='boolean'){ c.vals[k]=parseBool(t); }
       else if(c.type==='excluded'){ c.vals[k]=t; }
       else c.vals[k]=t;
@@ -1189,8 +1297,10 @@ function profileView(){
   for(var ci=0; ci<S.cols.length; ci++){
     c=S.cols[ci];
     var out = { name:c.name, idx:ci, type:c.type, sub:c.sub, role:c.role, cur:c.cur, per:c.per,
-      mixed:c.mixed, excluded:c.excluded, override:c.override, forced:c.forced };
-    var present=0, nums=[], counts={}, uniqN=0, minD=null, maxD=null;
+      mixed:c.mixed, excluded:c.excluded, override:c.override, forced:c.forced,
+      dord:c.dord, dec:c.dec,
+      dateAmbig:(c.type==='date'&&c.dateAmbig), dateConflict:(c.type==='date'&&c.dateConflict) };
+    var present=0, nums=[], counts=dict(), uniqN=0, minD=null, maxD=null;
     for(i=0;i<view.length;i++){
       var v=c.vals[view[i]];
       if(v===null||v===undefined||v===''){ continue; }
@@ -1242,13 +1352,17 @@ function profileView(){
   S.profile=p;
   return p;
 }
+function ruleLabel(){
+  var r=(S.opt&&S.opt.outlier)||'iqr';
+  return r==='sigma' ? 'three standard deviations' : (r==='pct' ? 'the 1st to 99th percentile band' : '1.5 IQR');
+}
 function countUnique(nums){
-  var seen={}, n=0;
+  var seen=dict(), n=0;
   for(var i=0;i<nums.length;i++){ var k=String(nums[i]); if(seen[k]===undefined){ seen[k]=1; n++; } }
   return n;
 }
 function dupRows(){
-  var seen={}, dup=0, view=S.view;
+  var seen=dict(), dup=0, view=S.view;
   for(var i=0;i<view.length;i++){
     var key=S.rows[view[i]].join('\u0001');
     if(seen[key]){ dup++; } else seen[key]=1;
@@ -1271,13 +1385,16 @@ function scoreQuality(p){
     ded('Duplicate rows',Math.min(15,(dup/Math.max(1,p.rows))*100));
     flags.push({ key:'dup', lvl:'bad', t:'Duplicate rows', d:commas(dup)+' rows are exact duplicates of an earlier row.' });
   }
-  var consts=[], mixed=[], hiCard=[], outliers=[], empties=[], outNames=[];
+  var consts=[], mixed=[], hiCard=[], outliers=[], empties=[], outNames=[], ambD=[], confD=[], commaD=[];
   for(i=0;i<p.cols.length;i++){
     c=p.cols[i];
     if(c.excluded) continue;
     if(c.type==='empty' || c.present===0){ empties.push(c.name); continue; }
     if(c.uniq===1) consts.push(c.name);
     if(c.mixed) mixed.push(c.name);
+    if(c.dateAmbig) ambD.push(c.name);
+    if(c.dateConflict) confD.push(c.name);
+    if(c.type==='number' && c.dec==='comma') commaD.push(c.name);
     if(c.type==='text' && c.uniqRatio>0.95 && p.rows>20) hiCard.push(c.name);
     if(c.stat && c.stat.out/Math.max(1,c.stat.n)>0.02){ outliers.push(c.name+' ('+c.stat.out+')'); outNames.push(c.name); }
   }
@@ -1285,7 +1402,10 @@ function scoreQuality(p){
   if(consts.length){ ded('Constant columns',Math.min(9,consts.length*3)); flags.push({key:'const',cols:consts,lvl:'warn',t:'Constant columns',d:consts.join(', ')+' never vary, so they carry no analytical signal.'}); }
   if(mixed.length){ ded('Mixed types',Math.min(14,mixed.length*5)); flags.push({key:'mixed',cols:mixed,lvl:'bad',t:'Mixed types',d:mixed.join(', ')+' contain a blend of parseable and unparseable values.'}); }
   if(hiCard.length){ flags.push({key:'text',cols:hiCard,lvl:'warn',t:'Free text',d:hiCard.join(', ')+' is nearly all unique, so treat it as a label rather than a category.'}); }
-  if(outliers.length){ ded('Outliers',Math.min(10,outliers.length*2.5)); flags.push({key:'out',cols:outNames,lvl:'warn',t:'Outliers',d:'Beyond 1.5 IQR in '+outliers.join(', ')+'.'}); }
+  if(outliers.length){ ded('Outliers',Math.min(10,outliers.length*2.5)); flags.push({key:'out',cols:outNames,lvl:'warn',t:'Outliers',d:'Beyond '+ruleLabel()+' in '+outliers.join(', ')+'.'}); }
+  if(confD.length){ ded('Conflicting date order',Math.min(10,confD.length*5)); flags.push({key:'dateconflict',cols:confD,lvl:'bad',t:'Conflicting date order',d:confD.join(', ')+' holds some dates that can only be day first and others that can only be month first, so the ambiguous ones cannot be trusted. Set the order in data settings or clean the source.'}); }
+  if(ambD.length){ flags.push({key:'dateorder',cols:ambD,lvl:'warn',t:'Ambiguous date order',d:ambD.join(', ')+' never shows a day above 12, so nothing in the file says whether 03/04 is March or April. It was read month first. If the file is day first, change that in data settings.'}); }
+  if(commaD.length){ flags.push({key:'commadec',cols:commaD,lvl:'warn',t:'Comma decimals',d:commaD.join(', ')+' was read with a comma as the decimal mark, because the values do not parse any other way. Check one figure against the source.'}); }
   if(!flags.length) flags.push({key:'clean',lvl:'good',t:'Clean',d:'No missing values, duplicates, constants or type conflicts were found.'});
   score=Math.max(0,Math.min(100,Math.round(score)));
   var grade = score>=93?'A':score>=85?'A-':score>=78?'B+':score>=70?'B':score>=60?'C':score>=48?'D':'F';
@@ -1817,22 +1937,25 @@ function aggregate(dimIdx,measIdx,agg,grain,maxG){
 }
 function aggregateRows(rows,dimIdx,measIdx,agg,grain,maxG){
   var dc=S.cols[dimIdx], mc=measIdx===null?null:S.cols[measIdx];
-  var map={}, keys=[], i;
+  var map=dict(), keys=[], i;
   for(i=0;i<rows.length;i++){
     var r=rows[i], dv=dc.vals[r];
     if(dv===null||dv===undefined||dv==='') continue;
     var key = dc.type==='date' ? bucket(dv,grain||'month') : String(dv);
-    if(map[key]===undefined){ map[key]={s:0,n:0,k:key}; keys.push(key); }
+    if(map[key]===undefined){ map[key]={s:0,n:0,vn:0,k:key}; keys.push(key); }
     map[key].n++;
     if(mc){
       var mv=mc.vals[r];
-      if(mv!==null && isFinite(mv)) map[key].s+=mv;
+      if(mv!==null && mv!==undefined && isFinite(mv)){ map[key].s+=mv; map[key].vn++; }
     }
   }
   var out=[];
   for(i=0;i<keys.length;i++){
     var e=map[keys[i]];
-    out.push({ k:keys[i], v: agg==='count'?e.n:(agg==='avg'?(e.n?e.s/e.n:0):e.s), n:e.n });
+    /* an average is the total over the values that exist. Dividing by every row in the group would
+       count each blank as a zero and drag the average down */
+    if(agg==='avg' && !e.vn) continue;
+    out.push({ k:keys[i], v: agg==='count'?e.n:(agg==='avg'?e.s/e.vn:e.s), n:e.n, s:e.s, vn:e.vn });
   }
   if(dc.type==='date'){
     out.sort(function(a,b){ return (+a.k)-(+b.k); });
@@ -1844,8 +1967,10 @@ function aggregateRows(rows,dimIdx,measIdx,agg,grain,maxG){
   var lim=maxG||14;
   var keySets;
   if(out.length>lim){
-    var rest=out.slice(lim), s=0;
-    for(i=0;i<rest.length;i++) s+=rest[i].v;
+    var rest=out.slice(lim), s=0, rs0=0, rv0=0;
+    for(i=0;i<rest.length;i++){ s+=rest[i].v; rs0+=rest[i].s; rv0+=rest[i].vn; }
+    /* the folded bar of an average is the average of the folded rows, never a sum of averages */
+    if(agg==='avg') s = rv0 ? rs0/rv0 : 0;
     out=out.slice(0,lim);
     keySets=out.map(function(o){ return [o.k]; });
     keySets.push(rest.map(function(o){ return o.k; }));
@@ -1870,7 +1995,7 @@ function chartCard(parent,title,chips,why){
   return cv;
 }
 function moneyFmt(col){
-  return col && col.cur ? function(v){ return '$'+fmt(v); } : (col && col.per ? function(v){ return fmt(v)+'%'; } : null);
+  return col && col.cur ? function(v){ return (v<0?'-':'')+'$'+fmt(Math.abs(v)); } : (col && col.per ? function(v){ return fmt(v)+'%'; } : null);
 }
 
 /* ---- drivers ---- */
@@ -1898,15 +2023,15 @@ function driverCandidates(){
 }
 function groupWithRows(rows,dimIdx,measIdx,grain){
   var dc=S.cols[dimIdx], mc=(measIdx===null||measIdx===undefined)?null:S.cols[measIdx];
-  var map={}, keys=[], i;
+  var map=dict(), keys=[], i;
   for(i=0;i<rows.length;i++){
     var r=rows[i], dv=dc.vals[r];
     if(dv===null||dv===undefined||dv==='') continue;
     var key = dc.type==='date' ? String(bucket(dv,grain||'month')) : String(dv);
-    if(map[key]===undefined){ map[key]={ s:0, n:0, rows:[], k:key }; keys.push(key); }
+    if(map[key]===undefined){ map[key]={ s:0, n:0, vn:0, rows:[], k:key }; keys.push(key); }
     var e=map[key];
     e.n++; e.rows.push(r);
-    if(mc){ var mv=mc.vals[r]; if(mv!==null && isFinite(mv)) e.s+=mv; }
+    if(mc){ var mv=mc.vals[r]; if(mv!==null && mv!==undefined && isFinite(mv)){ e.s+=mv; e.vn++; } }
   }
   return { map:map, keys:keys, isDate:dc.type==='date' };
 }
@@ -1915,7 +2040,7 @@ function driverLabel(dimIdx,key,grain){
   return dc.type==='date' ? dateLabel(+key,grain||'month') : key;
 }
 function driverUnionKeys(gA,gB){
-  var union={}, order=[], i;
+  var union=dict(), order=[], i;
   for(i=0;i<gA.keys.length;i++){ if(!union[gA.keys[i]]){ union[gA.keys[i]]=1; order.push(gA.keys[i]); } }
   for(i=0;i<gB.keys.length;i++){ if(!union[gB.keys[i]]){ union[gB.keys[i]]=1; order.push(gB.keys[i]); } }
   return order;
@@ -1966,21 +2091,23 @@ function contribSum(rowsA,rowsB,dimIdx,measIdx,grain,cap){
 function contribRate(rowsA,rowsB,dimIdx,measIdx,grain,cap){
   var gA=groupWithRows(rowsA,dimIdx,measIdx,grain), gB=groupWithRows(rowsB,dimIdx,measIdx,grain);
   var i, k, NA=0, NB=0, rawA=0, rawB=0;
-  for(i=0;i<gA.keys.length;i++){ var ea0=gA.map[gA.keys[i]]; NA+=ea0.n; rawA+=ea0.s; }
-  for(i=0;i<gB.keys.length;i++){ var eb0=gB.map[gB.keys[i]]; NB+=eb0.n; rawB+=eb0.s; }
+  /* weights and averages count the rows that carry a value for the measure, so a blank is left out
+     rather than averaged in as a zero */
+  for(i=0;i<gA.keys.length;i++){ var ea0=gA.map[gA.keys[i]]; NA+=ea0.vn; rawA+=ea0.s; }
+  for(i=0;i<gB.keys.length;i++){ var eb0=gB.map[gB.keys[i]]; NB+=eb0.vn; rawB+=eb0.s; }
   var meanA = NA? rawA/NA : 0, meanB = NB? rawB/NB : 0;
   var order=driverUnionKeys(gA,gB), allMembers=[];
   for(i=0;i<order.length;i++){
     k=order[i];
     var ea=gA.map[k], eb=gB.map[k];
-    var nA=ea?ea.n:0, nB=eb?eb.n:0;
+    var nA=ea?ea.vn:0, nB=eb?eb.vn:0;
     var rateA = nA? ea.s/nA : 0, rateB = nB? eb.s/nB : 0;
     var wA = NA? nA/NA : 0, wB = NB? nB/NB : 0;
     var mix=(wB-wA)*rateA, rate=wA*(rateB-rateA), inter=(wB-wA)*(rateB-rateA);
     allMembers.push({ key:k, label:driverLabel(dimIdx,k,grain), nA:nA, nB:nB, rateA:rateA, rateB:rateB,
       wA:wA, wB:wB, mix:mix, rate:rate, interaction:inter, total:mix+rate+inter,
       rowsA: ea?ea.rows.slice():[], rowsB: eb?eb.rows.slice():[],
-      kind: (!ea&&eb)?'entry':((ea&&!eb)?'exit':'continuing') });
+      kind: (!nA&&nB)?'entry':((nA&&!nB)?'exit':'continuing') });
   }
   var mixT=0, rateT=0, interT=0;
   for(i=0;i<allMembers.length;i++){ mixT+=allMembers[i].mix; rateT+=allMembers[i].rate; interT+=allMembers[i].interaction; }
@@ -2002,7 +2129,7 @@ function contribRate(rowsA,rowsB,dimIdx,measIdx,grain,cap){
     members:shown, allMembers:allMembers, folded:foldedSrc.length?foldedSrc:null };
 }
 function etaSquared(rows,dimIdx,measIdx){
-  var dc=S.cols[dimIdx], mc=S.cols[measIdx], groups={}, keys=[], i, r, dv, mv;
+  var dc=S.cols[dimIdx], mc=S.cols[measIdx], groups=dict(), keys=[], i, r, dv, mv;
   var grand=0, n=0;
   for(i=0;i<rows.length;i++){
     r=rows[i]; dv=dc.vals[r]; mv=mc.vals[r];
@@ -2085,7 +2212,7 @@ function ssqOpt(over){
   return o;
 }
 function ssqSide(rows,dimIdx,measIdx){
-  var dc=S.cols[dimIdx], mc=S.cols[measIdx], map={}, keys=[], i, n=0, s=0;
+  var dc=S.cols[dimIdx], mc=S.cols[measIdx], map=dict(), keys=[], i, n=0, s=0;
   for(i=0;i<rows.length;i++){
     var r=rows[i], dv=dc.vals[r], mv=mc.vals[r];
     if(dv===null||dv===undefined||dv==='') continue;
@@ -2110,7 +2237,7 @@ function ssqCompareOn(rowsA,rowsB,dimIdx,measIdx,o){
   res.nA=A.n; res.nB=B.n;
   if(!A.n||!B.n){ res.reason='one side has no rows carrying both fields'; return res; }
   res.rawA=A.mean; res.rawB=B.mean; res.rawDelta=B.mean-A.mean;
-  var seen={}, union=[], i, k;
+  var seen=dict(), union=[], i, k;
   for(i=0;i<A.keys.length;i++){ if(!seen[A.keys[i]]){ seen[A.keys[i]]=1; union.push(A.keys[i]); } }
   for(i=0;i<B.keys.length;i++){ if(!seen[B.keys[i]]){ seen[B.keys[i]]=1; union.push(B.keys[i]); } }
   if(union.length>o.maxLevels){ res.reason='has '+union.length+' distinct values, above the ceiling of '+o.maxLevels; return res; }
@@ -2183,6 +2310,7 @@ function ssqScan(rowsA,rowsB,measIdx,skipIdx,o){
   return { checked:n, available:dims.length, hits:(hits.length>o.topN?hits.slice(0,o.topN):hits),
     found:hits.length, skipped:skipped, measIdx:measIdx, skipIdx:skipIdx, minCell:o.minCell };
 }
+function pvn(c){ return c.vn===undefined ? c.n : c.vn; }
 function pivotReversal(P,o){
   o=o||ssqOpt();
   var res={ ok:false, reason:'', rows:[], cols:[], rowFlips:[], colFlips:[], minCell:o.minCell, tested:0 };
@@ -2195,7 +2323,7 @@ function pivotReversal(P,o){
   for(j=0;j<cN;j++){ colN.push(0); }
   for(i=0;i<rN;i++){
     rowN.push(0);
-    for(j=0;j<cN;j++){ var nn=P.cells[i][j].n; rowN[i]+=nn; colN[j]+=nn; }
+    for(j=0;j<cN;j++){ var nn=pvn(P.cells[i][j]); rowN[i]+=nn; colN[j]+=nn; }
     rowTotN+=rowN[i];
   }
   for(j=0;j<cN;j++) totN+=colN[j];
@@ -2204,11 +2332,11 @@ function pivotReversal(P,o){
     var rs=0, rn=0, s=0, w=0, q, c;
     for(q=0;q<over;q++){
       c = kind==='row' ? P.cells[ix][q] : P.cells[q][ix];
-      rs+=c.s; rn+=c.n;
-      if(c.n<o.minCell) continue;
+      rs+=c.s; rn+=pvn(c);
+      if(pvn(c)<o.minCell) continue;
       var ww=wArr[q]/wTot;
       if(!(ww>0)) continue;
-      s+=ww*(c.s/c.n); w+=ww;
+      s+=ww*(c.s/pvn(c)); w+=ww;
     }
     if(!rn || !(w>0) || w<o.minCoverage) return null;
     return { kind:kind, ix:ix, label:label, raw:rs/rn, std:s/w, cover:w, n:rn };
@@ -2297,6 +2425,14 @@ function explain(params){
     rowsA=rowsWhere(function(r){ var v=S.cols[pd].vals[r]; return v!==null && v!==undefined && String(bucket(v,g))===String(p.perA); });
     rowsB=rowsWhere(function(r){ var v=S.cols[pd].vals[r]; return v!==null && v!==undefined && String(bucket(v,g))===String(p.perB); });
     meta.aLabel=dateLabel(+p.perA,g); meta.bLabel=dateLabel(+p.perB,g);
+    if(agg!=='avg'){
+      var epd=edgePartial(S.view,pd,g), pn=[];
+      if(epd.last && (String(epd.last.key)===String(p.perA)||String(epd.last.key)===String(p.perB)))
+        pn.push({ label:dateLabel(epd.last.key,g), text:'has rows only through '+iso(epd.last.through)+', about '+pct(epd.last.frac,0)+' of the way in' });
+      if(epd.first && (String(epd.first.key)===String(p.perA)||String(epd.first.key)===String(p.perB)))
+        pn.push({ label:dateLabel(epd.first.key,g), text:'has rows only from '+iso(epd.first.from)+', covering about '+pct(epd.first.frac,0)+' of it' });
+      meta.partial=pn;
+    }
   } else {
     var inView={}, i3;
     for(i3=0;i3<S.view.length;i3++) inView[S.view[i3]]=1;
@@ -2356,7 +2492,7 @@ function fcEligibleMeas(){
   }
   return out;
 }
-function fcBuildSeries(dateIdx,measIdx,agg,grain){
+function fcBuildSeries(dateIdx,measIdx,agg,grain,partial){
   var dc=S.cols[dateIdx], mc=(measIdx===null||measIdx===undefined)?null:S.cols[measIdx];
   var map={}, i, r, dv, k, lo=null, hi=null;
   if(!dc) return null;
@@ -2364,9 +2500,9 @@ function fcBuildSeries(dateIdx,measIdx,agg,grain){
     r=S.view[i]; dv=dc.vals[r];
     if(dv===null||dv===undefined||dv==='') continue;
     k=bucket(dv,grain);
-    if(map[k]===undefined) map[k]={ s:0, n:0, rows:[] };
+    if(map[k]===undefined) map[k]={ s:0, n:0, vn:0, rows:[] };
     map[k].n++; map[k].rows.push(r);
-    if(mc){ var mv=mc.vals[r]; if(mv!==null&&isFinite(mv)) map[k].s+=mv; }
+    if(mc){ var mv=mc.vals[r]; if(mv!==null&&mv!==undefined&&isFinite(mv)){ map[k].s+=mv; map[k].vn++; } }
     if(lo===null||k<lo) lo=k;
     if(hi===null||k>hi) hi=k;
   }
@@ -2375,12 +2511,30 @@ function fcBuildSeries(dateIdx,measIdx,agg,grain){
   for(k=lo; k<=hi && guard<4000; k=fcNextBucket(k,grain), guard++){
     var e=map[k];
     times.push(k);
-    if(e){
+    if(e && !(agg==='avg' && !e.vn)){
       counts.push(e.n); rows.push(e.rows.slice()); filled.push(false);
-      values.push(agg==='count'?e.n:(agg==='avg'?(e.n?e.s/e.n:0):e.s));
+      values.push(agg==='count'?e.n:(agg==='avg'?e.s/e.vn:e.s));
+    } else if(e){
+      /* rows exist but none carries the measure, so the average is unknown rather than zero */
+      counts.push(e.n); rows.push(e.rows.slice()); filled.push(true);
+      values.push(null);
     } else {
       counts.push(0); rows.push([]); filled.push(true);
       values.push(agg==='avg'?null:0);
+    }
+  }
+  var trimmed={ first:null, last:null }, kept={ first:null, last:null };
+  if(agg!=='avg'){
+    var ep=edgePartial(S.view,dateIdx,grain), eL;
+    if(ep.last && times.length>1){
+      eL={ label:dateLabel(ep.last.key,grain==='week'?'day':grain), through:ep.last.through, frac:ep.last.frac };
+      if(partial==='keep') kept.last=eL;
+      else { trimmed.last=eL; times.pop(); values.pop(); counts.pop(); rows.pop(); filled.pop(); }
+    }
+    if(ep.first && times.length>1){
+      eL={ label:dateLabel(ep.first.key,grain==='week'?'day':grain), from:ep.first.from, frac:ep.first.frac };
+      if(partial==='keep') kept.first=eL;
+      else { trimmed.first=eL; times.shift(); values.shift(); counts.shift(); rows.shift(); filled.shift(); }
     }
   }
   var gaps=0, j;
@@ -2398,7 +2552,7 @@ function fcBuildSeries(dateIdx,measIdx,agg,grain){
     }
   }
   return { times:times, values:values, counts:counts, rows:rows, filled:filled,
-    gaps:gaps, grain:grain, dateIdx:dateIdx,
+    gaps:gaps, grain:grain, dateIdx:dateIdx, trimmed:trimmed, kept:kept,
     measIdx:(measIdx===undefined?null:measIdx), agg:agg };
 }
 function fcMean(a){ var s=0,i; for(i=0;i<a.length;i++) s+=a[i]; return a.length?s/a.length:0; }
@@ -2601,19 +2755,22 @@ function fcDecompose(y,m){
   for(i=0;i<m;i++){ seas.push(cnts[i]?sums[i]/cnts[i]:0); tot+=seas[i]; }
   var adj=tot/m;
   for(i=0;i<m;i++) seas[i]-=adj;
-  var season=[], resid=[], sv=0, tv=0, mu=fcMean(y);
+  var season=[], resid=[], sv=0, tv=0, inner=[];
   for(i=0;i<n;i++){
     season.push(seas[i%m]);
     resid.push(trend[i]===null?null:(y[i]-trend[i]-seas[i%m]));
-    if(resid[i]!==null) sv+=resid[i]*resid[i];
-    tv+=(y[i]-mu)*(y[i]-mu);
+    if(resid[i]!==null){ sv+=resid[i]*resid[i]; inner.push(y[i]); }
   }
+  /* compare like with like: the residual only exists where the centred trend does, so the total
+     variation has to be measured over those same periods */
+  var mu=fcMean(inner);
+  for(i=0;i<inner.length;i++) tv+=(inner[i]-mu)*(inner[i]-mu);
   return { trend:trend, season:season, resid:resid, seasonal:seas, m:m,
     residShare: tv>0?sv/tv:0 };
 }
 function fcExplain(params){
   var P=params||{}, i;
-  var ser=fcBuildSeries(P.dateIdx,P.measIdx,P.agg,P.grain);
+  var ser=fcBuildSeries(P.dateIdx,P.measIdx,P.agg,P.grain,P.partial);
   if(!ser) return null;
   var y=ser.values, n=y.length;
   if(n<5) return { series:ser, tooShort:true, need:5 };
@@ -2662,6 +2819,650 @@ function fcExplain(params){
     point:point, lo:lo, hi:hi, times:times, horizon:h, sd:sd, residN:res.length,
     btRow:btRow, decomp:fcDecompose(y,m),
     autoPick:(!P.model||P.model==='auto'), fellBack:fellBack };
+}
+
+/* ---------------- partial edge periods ---------------- */
+/* A period at either end of the file that the data only partly covers is not a data point for a
+   total or a count: half a month reads as a collapse that never happened. This looks at how far into
+   each period the rows reach and flags an end period only when it stops well short of every other. */
+function edgePartial(rows,dateIdx,grain){
+  var dc=S.cols[dateIdx], map={}, keys=[], i, v, k, e, none={ first:null, last:null };
+  if(!dc) return none;
+  for(i=0;i<rows.length;i++){
+    v=dc.vals[rows[i]];
+    if(v===null||v===undefined||v==='') continue;
+    k=bucket(v,grain);
+    e=map[k];
+    if(!e){ map[k]={ lo:v, hi:v }; keys.push(k); }
+    else { if(v<e.lo) e.lo=v; if(v>e.hi) e.hi=v; }
+  }
+  if(keys.length<4) return none;
+  keys.sort(function(a,b){ return a-b; });
+  var DAY=86400000, startF=[], endF=[];
+  for(i=0;i<keys.length;i++){
+    k=keys[i]; e=map[k];
+    var span=fcNextBucket(k,grain)-k;
+    e.sf=(bucket(e.lo,'day')-k)/span;
+    e.ef=(bucket(e.hi,'day')+DAY-k)/span;
+    if(i>0 && i<keys.length-1){ startF.push(e.sf); endF.push(e.ef); }
+  }
+  startF.sort(function(a,b){ return a-b; }); endF.sort(function(a,b){ return a-b; });
+  var medS=quantile(startF,.5), medE=quantile(endF,.5);
+  var f=map[keys[0]], l=map[keys[keys.length-1]];
+  return {
+    first: (f.sf>medS+0.25 && f.sf>quantile(startF,.9)) ? { key:keys[0], from:f.lo, frac:1-f.sf } : null,
+    last: (l.ef<medE-0.25 && l.ef<quantile(endF,.1)) ? { key:keys[keys.length-1], through:l.hi, frac:l.ef } : null };
+}
+
+/* ---------------- which aggregate a measure supports ---------------- */
+var NONADD = { rate:1, ratio:1, pct:1, percent:1, percentage:1, share:1, avg:1, average:1, mean:1, median:1,
+  score:1, gpa:1, grade:1, rating:1, rank:1, index:1, price:1, age:1, temp:1, temperature:1, margin:1,
+  'yield':1, density:1, lat:1, latitude:1, lon:1, lng:1, longitude:1, year:1, per:1 };
+function nameTokens(name){
+  return String(name).replace(/([a-z])([A-Z])/g,'$1 $2').toLowerCase().split(/[^a-z0-9]+/);
+}
+/* totals only mean something for quantities that add up. Summing a rate, a score or a unit price
+   across rows gives a number with no interpretation, so those are averaged instead */
+function additive(pc){
+  if(!pc) return true;
+  if(pc.per) return false;
+  var t=nameTokens(pc.name), i;
+  for(i=0;i<t.length;i++){ if(NONADD[t[i]]===1) return false; }
+  return true;
+}
+
+/* ---------------- significance helpers ---------------- */
+function lgamma(x){
+  var c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.001208650973866179,-0.000005395239384953];
+  var y=x, t=x+5.5, ser=1.000000000190015, j;
+  t-=(x+0.5)*Math.log(t);
+  for(j=0;j<6;j++){ y+=1; ser+=c[j]/y; }
+  return -t+Math.log(2.5066282746310005*ser/x);
+}
+function betacf(a,b,x){
+  var FP=1e-300, qab=a+b, qap=a+1, qam=a-1, c=1, d=1-qab*x/qap, h, m, m2, aa, del;
+  if(Math.abs(d)<FP) d=FP;
+  d=1/d; h=d;
+  for(m=1;m<=300;m++){
+    m2=2*m;
+    aa=m*(b-m)*x/((qam+m2)*(a+m2));
+    d=1+aa*d; if(Math.abs(d)<FP) d=FP;
+    c=1+aa/c; if(Math.abs(c)<FP) c=FP;
+    d=1/d; h*=d*c;
+    aa=-(a+m)*(qab+m)*x/((a+m2)*(qap+m2));
+    d=1+aa*d; if(Math.abs(d)<FP) d=FP;
+    c=1+aa/c; if(Math.abs(c)<FP) c=FP;
+    d=1/d; del=d*c; h*=del;
+    if(Math.abs(del-1)<3e-14) break;
+  }
+  return h;
+}
+function betai(a,b,x){
+  if(!(x>0)) return 0;
+  if(x>=1) return 1;
+  var bt=Math.exp(lgamma(a+b)-lgamma(a)-lgamma(b)+a*Math.log(x)+b*Math.log(1-x));
+  if(x<(a+1)/(a+b+2)) return bt*betacf(a,b,x)/a;
+  return 1-bt*betacf(b,a,1-x)/b;
+}
+/* chance of an F this large or larger when the groups do not really differ */
+function pValueF(F,d1,d2){
+  if(!(d1>=1)||!(d2>=1)||!(F>0)) return 1;
+  if(!isFinite(F)) return 0;
+  return Math.max(0,Math.min(1,betai(d2/2,d1/2,d2/(d2+d1*F))));
+}
+/* two-sided chance of a t this far from zero */
+function pValueT(t,df){
+  if(!(df>=1)) return 1;
+  if(!isFinite(t)) return 0;
+  return Math.max(0,Math.min(1,betai(df/2,0.5,df/(df+t*t))));
+}
+function pValueR(r,n){
+  if(n<4||r===null) return 1;
+  if(Math.abs(r)>=1) return 0;
+  return pValueT(r*Math.sqrt((n-2)/(1-r*r)),n-2);
+}
+function rankOf(a){
+  var idx=[], i, j, out=new Array(a.length);
+  for(i=0;i<a.length;i++) idx.push(i);
+  idx.sort(function(x,y){ return a[x]-a[y]; });
+  i=0;
+  while(i<idx.length){
+    j=i;
+    while(j+1<idx.length && a[idx[j+1]]===a[idx[i]]) j++;
+    var r=(i+j)/2+1, q;
+    for(q=i;q<=j;q++) out[idx[q]]=r;
+    i=j+1;
+  }
+  return out;
+}
+function spearman(a,b){ return pearson(rankOf(a),rankOf(b)); }
+function pWord(p){
+  if(p<0.001) return 'under 1 in 1,000';
+  if(p<0.01) return 'under 1 in 100';
+  if(p<0.05) return 'under 1 in 20';
+  return 'about '+fmt(p*100,0)+' in 100';
+}
+
+/* ---------------- where to look first ---------------- */
+var REC_KEY = { revenue:3, sales:3, profit:3, income:3, amount:2, total:2, cost:2, spend:2, spending:2,
+  expense:2, expenses:2, tuition:3, enrollment:3, enrolled:2, credit:2, credits:2, hours:2, qty:2,
+  quantity:2, units:2, orders:2, value:2, balance:2, paid:2, payment:2, fee:2, fees:2, headcount:3,
+  retention:3, conversion:3, margin:2, score:1, gpa:2, rate:1, count:1 };
+var REC_OUTCOME = { retained:3, retention:3, churn:3, churned:3, converted:3, conversion:3, renewed:3, graduated:3,
+  completed:2, passed:2, won:2, returned:2, enrolled:2, approved:2, cancelled:2, canceled:2, defaulted:2, success:2, active:1 };
+function recMeasures(){
+  var p=S.profile, out=[], i, j;
+  if(!p) return out;
+  for(i=0;i<p.cols.length;i++){
+    var c=p.cols[i];
+    if(c.excluded || c.role!=='measure' || !c.stat || !(c.stat.sd>0)) continue;
+    var w=0, t=nameTokens(c.name);
+    for(j=0;j<t.length;j++){ if(REC_KEY[t[j]]) w=Math.max(w,REC_KEY[t[j]]); }
+    if(c.cur) w+=2;
+    w-=Math.min(2,c.missPct*4);
+    out.push({ pc:c, w:w, pos:i });
+  }
+  /* a yes or no outcome is a measure too: averaged, it is the share of rows that are true */
+  for(i=0;i<p.cols.length;i++){
+    var b=p.cols[i];
+    if(b.excluded || b.type!=='boolean' || b.uniq!==2) continue;
+    var wb=-1, tb=nameTokens(b.name);
+    for(j=0;j<tb.length;j++){ if(REC_OUTCOME[tb[j]]) wb=Math.max(wb,REC_OUTCOME[tb[j]]); }
+    out.push({ pc:b, w:wb-Math.min(2,b.missPct*4), pos:i, rate:true });
+  }
+  out.sort(function(a,b){ return (b.w-a.w)||(a.pos-b.pos); });
+  return out;
+}
+function recLevel(score){ return score>=75 ? 'high' : (score>=50 ? 'mid' : 'low'); }
+function recLevelWord(l){ return l==='high' ? 'Act on this' : (l==='mid' ? 'Worth your time' : 'Background'); }
+function goPane(name){
+  var tabs=$('tabs').querySelectorAll('.tab'), i;
+  for(i=0;i<tabs.length;i++){
+    if(tabs[i].getAttribute('data-pane')===name && tabs[i].onclick){ tabs[i].onclick(); break; }
+  }
+  window.scrollTo(0,0);
+}
+function setSel(id,val){
+  var s=$(id), v=String(val), i;
+  if(!s) return false;
+  for(i=0;i<s.options.length;i++){ if(s.options[i].value===v){ s.value=v; return true; } }
+  return false;
+}
+function recommend(){
+  var p=S.profile, items=[], skipped=[], i, j;
+  if(!p) return null;
+  var rows=S.view, minN=Math.max(2,(S.opt&&S.opt.minDriverN)||5);
+  var meas=recMeasures(), focus=null, auto=true, isRate=false;
+  if(S.recFocus!==undefined && S.recFocus!==null && S.recFocus!=='auto'){
+    for(i=0;i<meas.length;i++){ if(meas[i].pc.idx===S.recFocus){ focus=meas[i].pc; isRate=!!meas[i].rate; auto=false; } }
+  }
+  if(!focus && meas.length){ focus=meas[0].pc; isRate=!!meas[0].rate; }
+  var M = focus ? focus.idx : null;
+  var add = focus ? (!isRate && additive(focus)) : true;
+  var agg = M===null ? 'count' : (add ? 'sum' : 'avg');
+  var mName = focus ? focus.name : 'the row count';
+  var aggWord = M===null ? 'row count' : (isRate ? 'share of rows where '+mName+' is true' : (add ? 'total '+mName : 'average '+mName));
+  var mf = moneyFmt(focus), f=function(v){ return isRate ? fmt(v*100,1)+'%' : (mf ? mf(v) : fmt(v)); };
+  var num = !!focus && !isRate;
+  var dims=[], date=null;
+  for(i=0;i<p.cols.length;i++){
+    var c=p.cols[i];
+    if(c.excluded) continue;
+    if((c.type==='category'||c.type==='boolean') && c.uniq>=2 && c.uniq<=40 && c.idx!==M) dims.push(c);
+    if(c.type==='date' && c.present>4 && (date===null || c.spanDays>date.spanDays)) date=c;
+  }
+  function push(o){ o.level=recLevel(o.score); items.push(o); }
+
+  /* 1. is the data fit to decide on */
+  var q=p.quality, qb=[], worst=null;
+  for(i=0;i<q.flags.length;i++){
+    var fl=q.flags[i];
+    if(fl.lvl==='bad' && !worst) worst=fl;
+  }
+  if(focus && focus.missPct>0.05) qb.push(pct(focus.missPct,1)+' of '+mName+' is blank');
+  if(q.dup>0 && q.dup/Math.max(1,p.rows)>0.01) qb.push(commas(q.dup)+' rows ('+pct(q.dup/Math.max(1,p.rows),1)+') repeat an earlier row exactly');
+  for(i=0;i<q.flags.length;i++){
+    if(q.flags[i].key==='mixed'||q.flags[i].key==='dateconflict'||q.flags[i].key==='dateorder') qb.push(q.flags[i].t.toLowerCase()+' in '+(q.flags[i].cols||[]).join(', '));
+  }
+  if(q.score<70 || qb.length){
+    var qs = q.score<60 ? 98 : (q.score<70 ? 88 : 64);
+    if(focus && focus.missPct>0.2) qs=Math.max(qs,97);
+    if(q.dup/Math.max(1,p.rows)>0.1) qs=Math.max(qs,96);
+    for(i=0;i<q.flags.length;i++){ if(q.flags[i].key==='dateconflict'||q.flags[i].key==='mixed') qs=Math.max(qs,80); }
+    (function(flag){
+      push({ kind:'quality', tab:'Overview', score:qs,
+        title:'Settle the data problems before quoting a figure',
+        why:'The file scores '+q.score+' out of 100 for quality'+(qb.length?': '+qb.join('; '):'')+'. Every analysis below inherits whatever is wrong here, so this comes first.',
+        how:['Quality score <code>'+q.score+'</code> (grade '+esc(q.grade)+'), built from '+q.pens.length+' deduction'+(q.pens.length===1?'':'s')+'.',
+          'This item ranks at <code>98</code> below a score of 60, <code>88</code> below 70, and <code>64</code> when the score is acceptable but the decision measure itself is affected. A decision measure more than a fifth blank lifts it to <code>97</code> and duplicates above a tenth of the rows to at least <code>96</code>, so that neither can be outranked by a finding built on them.'],
+        go:'Open the resolver',
+        run:function(){
+          var fx=null, k;
+          for(k=0;k<q.flags.length;k++){ if(isResolvable(q.flags[k])){ fx=q.flags[k]; break; } }
+          if(fx) openFix(fx); else if(flag) insFlag(flag); else insQuality();
+        } });
+    })(worst);
+  }
+
+  /* 2. which field separates the measure */
+  var bestDim=null, hi=null, lo=null, sig=[];
+  if(M!==null && dims.length){
+    var tested=[], nt=dims.length;
+    for(i=0;i<dims.length;i++){
+      var e=etaSquared(rows,dims[i].idx,M);
+      if(e.k<2 || e.n-e.k<2 || !(e.ssTotal>0)) continue;
+      var within=e.ssTotal-e.ssBetween;
+      var F = within>0 ? (e.ssBetween/(e.k-1))/(within/(e.n-e.k)) : Infinity;
+      var pv=Math.min(1,pValueF(F,e.k-1,e.n-e.k)*nt);
+      /* eta squared rises with the number of groups even on noise, so rank on the adjusted share */
+      var adjEta=Math.max(0,1-(1-e.eta2)*(e.n-1)/(e.n-e.k));
+      tested.push({ pc:dims[i], eta:e.eta2, adj:adjEta, p:pv, k:e.k, n:e.n, F:F });
+    }
+    tested.sort(function(a,b){ return b.adj-a.adj; });
+    for(i=0;i<tested.length && sig.length<4;i++){
+      if(tested[i].p>=0.05 || tested[i].adj<0.02) continue;
+      var side=ssqSide(rows,tested[i].pc.idx,M), h2=null, l2=null;
+      for(j=0;j<side.keys.length;j++){
+        var g=side.map[side.keys[j]];
+        if(g.n<minN) continue;
+        var gm=g.s/g.n;
+        if(h2===null||gm>h2.mean) h2={ key:side.keys[j], mean:gm, n:g.n };
+        if(l2===null||gm<l2.mean) l2={ key:side.keys[j], mean:gm, n:g.n };
+      }
+      if(h2 && l2 && h2.key!==l2.key){
+        sig.push({ t:tested[i], hi:h2, lo:l2 });
+        if(!bestDim){ bestDim=tested[i]; hi=h2; lo=l2; }
+      }
+    }
+    if(bestDim){
+      (function(bd,H,L){
+        push({ kind:'segment', tab:'Compare', score:45+47*Math.min(1,bd.adj/0.25),
+          title:mName+' differs most by '+bd.pc.name,
+          why:bd.pc.name+' accounts for '+pct(bd.adj,0)+' of the variation in '+mName+' across '+bd.k+' groups. '+
+            H.key+(isRate?' runs at ':' averages ')+f(H.mean)+' on '+commas(H.n)+' rows and '+L.key+(isRate?' at ':' averages ')+f(L.mean)+' on '+commas(L.n)+
+            '. The chance of a split this clean arising from noise is '+pWord(bd.p)+', after allowing for the '+nt+' field'+(nt===1?'':'s')+' scanned.',
+          caution:'A gap between groups says where the difference sits, not what causes it.',
+          how:['One-way analysis of variance of <b>'+esc(mName)+'</b> across the groups of <b>'+esc(bd.pc.name)+'</b> on '+commas(bd.n)+' rows.'+(isRate?' The outcome is scored 1 for true and 0 for false, so each group average is its rate. On a yes or no outcome the F test is an approximation, sound at these row counts.':''),
+            'Share of variation between groups (eta squared) is <code>'+pct(bd.eta,1)+'</code>. Adjusted for having '+bd.k+' groups it is <code>'+pct(bd.adj,1)+'</code>, and the adjusted figure is the one ranked on, because the raw share rises with the number of groups even when the groups are noise.',
+            'F is <code>'+(isFinite(bd.F)?fmt(bd.F,2):'unbounded')+'</code> on '+(bd.k-1)+' and '+(bd.n-bd.k)+' degrees of freedom. Its p-value was multiplied by the '+nt+' fields tested (a Bonferroni correction) and comes to <code>'+(bd.p<0.0001?'below 0.0001':fmt(bd.p,4))+'</code>.',
+            'Score is <code>45 + 47 x min(1, adjusted share / 0.25) = '+fmt(45+47*Math.min(1,bd.adj/0.25),0)+'</code>.'],
+          go:'Compare '+H.key+' with '+L.key,
+          run:function(){
+            if(!setSel('m-dim',bd.pc.idx)){ goPane('compare'); return; }
+            refreshSegments();
+            setSel('m-a',H.key); setSel('m-b',L.key);
+            S.compareParams={ dim:bd.pc.idx, a:H.key, b:L.key };
+            S.compare=compareSegments(bd.pc.idx,H.key,L.key);
+            renderCompare(); goPane('compare');
+          } });
+      })(bestDim,hi,lo);
+    } else if(tested.length){
+      skipped.push('Segment gaps: no field separates '+mName+' reliably. The best was '+tested[0].pc.name+' at '+pct(tested[0].adj,1)+' of the variation, which noise could produce.');
+    }
+  } else if(M!==null){
+    skipped.push('Segment gaps: there is no category field with 2 to 40 values to split '+mName+' by.');
+  }
+
+  /* 3. does a gap survive holding another field equal. Every field that separates the measure
+        reliably is tested, not only the strongest, because the reversal that matters is often on the
+        second or third field a reader would reach for */
+  if(sig.length){
+    var worstHit=null, scanned=0, revFound=0;
+    for(i=0;i<sig.length;i++){
+      var sg=sig[i];
+      var rowsLo=segRows(sg.t.pc.idx,sg.lo.key,false), rowsHi=segRows(sg.t.pc.idx,sg.hi.key,false);
+      var scan=ssqScan(rowsLo,rowsHi,M,sg.t.pc.idx,ssqOpt({ labels:{ base:sg.lo.key, comp:sg.hi.key } }));
+      scanned+=scan.checked; revFound+=scan.found;
+      if(scan.hits.length && (worstHit===null || scan.hits[0].severity>worstHit.h.severity)) worstHit={ h:scan.hits[0], sg:sg, scan:scan };
+    }
+    if(worstHit){
+      (function(h,bd,H,L,scan){
+        var sev = (h.reversal==='partial') ? 68 : 94;
+        push({ kind:'reversal', tab:isRate?'Compare':'Drivers', score:sev,
+          title:'The gap between '+H.key+' and '+L.key+' changes once '+h.dimName+' is held equal',
+          why:'Pooled, '+H.key+' sits '+signedBy(f,h.rawDelta)+' against '+L.key+' on '+(isRate?'the '+mName+' rate':'average '+mName)+'. Give both the same mix of '+h.dimName+
+            ' and the gap reads '+signedBy(f,h.stdDelta)+', which is '+ssqWord(h.reversal)+'. Part of the headline is the two groups being made of different things.',
+          caution:'Neither figure is the true one. Which to quote depends on whether '+h.dimName+' is a cause of the gap or a step on the way to it, and data alone cannot say.',
+          how:['The highest and lowest groups of each field that separates <b>'+esc(mName)+'</b> reliably ('+sig.length+' field'+(sig.length===1?'':'s')+') were compared, and every other category field was tested by direct standardization: both sides reweighted onto one shared mix.',
+            commas(scanned)+' field and pair combination'+(scanned===1?' was':'s were')+' tested and '+commas(revFound)+' showed a reversal. This is the most severe.',
+            'For <b>'+esc(bd.pc.name)+'</b> with <b>'+esc(h.dimName)+'</b> held equal, the pooled gap is <code>'+signedBy(f,h.rawDelta)+'</code> and the standardized gap is <code>'+signedBy(f,h.stdDelta)+'</code>, with '+pct(h.weightAgainst,0)+' of the shared weight moving against the headline.',
+            'A full or standardized reversal scores <code>94</code>, above any plain gap or movement, and a partial one <code>68</code>, because a headline that flips is the most expensive thing to get wrong.'],
+          go:isRate?'Compare the two groups':'Open the breakdown in Drivers',
+          run:function(){
+            if(isRate){
+              if(setSel('m-dim',bd.pc.idx)){
+                refreshSegments(); setSel('m-a',H.key); setSel('m-b',L.key);
+                S.compareParams={ dim:bd.pc.idx, a:H.key, b:L.key };
+                S.compare=compareSegments(bd.pc.idx,H.key,L.key); renderCompare();
+              }
+              goPane('compare'); return;
+            }
+            setSel('d-mode','segment');
+            if(!setSel('d-sdim',bd.pc.idx)){ goPane('drivers'); return; }
+            refreshDriverSegs();
+            setSel('d-a',L.key); setSel('d-b',H.key);
+            setSel('d-dim',h.dimIdx); setSel('d-meas',M); setSel('d-agg','avg');
+            driverModeSync(); driverRun(); goPane('drivers');
+          } });
+      })(worstHit.h,worstHit.sg.t,worstHit.sg.hi,worstHit.sg.lo,worstHit.scan);
+    } else if(scanned){
+      skipped.push('Reversal check: across '+sig.length+' field'+(sig.length===1?'':'s')+' that separate '+mName+', the gap between the highest and lowest group kept its direction with every other field held equal ('+scanned+' combinations tested).');
+    }
+  }
+
+  /* 4 and 5. the latest move, and whether the series can be projected */
+  if(date){
+    var grain = date.spanDays>3650 ? 'year' : (date.spanDays>=150 ? 'month' : 'week');
+    var ser=fcBuildSeries(date.idx,M,agg,grain);
+    var y=ser?ser.values:[], n=y.length;
+    var trimNote = (ser && ser.trimmed && ser.trimmed.last) ? ' The unfinished period '+ser.trimmed.last.label+' was left out.' : '';
+    /* work on the periods that hold rows. Term, quarterly or irregular data leaves most calendar
+       periods empty, and reading those as zero would make every period look like a collapse and a recovery */
+    var oy=[], ot=[], gapShare = n ? ser.gaps/n : 0;
+    for(i=0;i<n;i++){ if(!ser.filled[i]){ oy.push(y[i]); ot.push(ser.times[i]); } }
+    var on=oy.length, sparse = gapShare>0.25;
+    if(on>=6){
+      var d=oy[on-1]-oy[on-2], diffs=[], sdD=0;
+      for(i=1;i<on-1;i++) diffs.push(oy[i]-oy[i-1]);
+      if(diffs.length>=3){ var dd=describe(diffs); sdD=dd.sd; }
+      var z = sdD>0 ? d/sdD : 0, rel = oy[on-2]!==0 ? d/Math.abs(oy[on-2]) : null;
+      var labA=dateLabel(ot[on-2],grain==='week'?'day':grain), labB=dateLabel(ot[on-1],grain==='week'?'day':grain);
+      var yA=oy[on-2], yB=oy[on-1];
+      if(Math.abs(z)>=1.5 && (rel===null || Math.abs(rel)>=0.05)){
+        (function(kA,kB){
+          var split = isRate ? null : (bestDim ? bestDim.pc : (dims.length ? dims[0] : null));
+          push({ kind:'period', tab: isRate?'Charts':(split?'Drivers':'Forecast'), score:50+Math.min(42,14*Math.abs(z)),
+            title:'The '+aggWord+' '+(d>0?'rose':'fell')+' unusually in '+labB,
+            why:'It moved from '+f(yA)+' in '+labA+' to '+f(yB)+' in '+labB+', a change of '+signedBy(f,d)+(rel===null?'':' ('+(d>=0?'+':'-')+pct(Math.abs(rel),1)+')')+
+              '. That is '+fmt(Math.abs(z),1)+' times the usual swing between one period and the next across the '+diffs.length+' moves before it.'+
+              (sparse?' Only the '+on+' '+grain+'s that hold rows are compared, since the dates fall on a cycle rather than every '+grain+'.':'')+trimNote,
+            caution:'An unusual move is a reason to look, not an explanation. The breakdown shows which groups carried it.',
+            how:['The rows in scope were bucketed by <b>'+esc(date.name)+'</b> at '+grain+' grain into '+commas(on)+' periods that hold rows, and the '+esc(aggWord)+' taken in each.',
+              'The last change is <code>'+signedBy(f,d)+'</code>. The standard deviation of the '+diffs.length+' earlier changes is <code>'+f(sdD)+'</code>, so the last one is <code>'+fmt(Math.abs(z),2)+'</code> standard deviations out.',
+              'It is recommended at 1.5 or more, provided the move is also at least 5 percent. Score is <code>50 + min(42, 14 x '+fmt(Math.abs(z),2)+') = '+fmt(50+Math.min(42,14*Math.abs(z)),0)+'</code>.'],
+            go: isRate ? 'Chart it over time' : (split ? 'Explain the change by '+split.name : 'Open the forecast'),
+            run:function(){
+              if(isRate){
+                var ttl2='Share '+mName+' over time', had2=false, k4;
+                for(k4=0;k4<S.custom.length;k4++){ if(S.custom[k4].title===ttl2) had2=true; }
+                if(!had2) S.custom.push({ kind:'line', dim:date.idx, meas:M, agg:'avg', grain:grain, custom:true, title:ttl2,
+                  why:'Added from the recommendations. Each point is the share of that period\u2019s rows where '+mName+' is true, on a scale of 0 to 1.' });
+                renderCharts(); goPane('charts'); return;
+              }
+              if(!split){ goPane('forecast'); return; }
+              setSel('d-mode','period'); setSel('d-pdim',date.idx); setSel('d-grain',grain);
+              refreshDriverPeriods();
+              setSel('d-pa',kA); setSel('d-pb',kB);
+              setSel('d-dim',split.idx); setSel('d-meas',M===null?-1:M); setSel('d-agg',agg);
+              driverModeSync(); driverRun(); goPane('drivers');
+            } });
+        })(ot[on-2],ot[on-1]);
+      } else {
+        skipped.push('Latest period: the move from '+labA+' to '+labB+(rel===null?'':' ('+(d>=0?'+':'-')+pct(Math.abs(rel),1)+')')+' is inside the usual swing for this series.');
+      }
+    }
+    if(isRate){
+      /* the Forecast tab takes numeric measures only */
+    } else if(sparse){
+      skipped.push('Forecast: '+date.name+' holds rows in only '+on+' of '+n+' '+grain+'s, so the dates fall on a cycle or are irregular. A forecast needs an evenly filled series, and reading the empty '+grain+'s as zero would invent a pattern.');
+    } else if(n>=8){
+      var F=null;
+      try{ F=fcExplain({ dateIdx:date.idx, measIdx:M, agg:agg, grain:grain, season:'auto', model:'auto', horizon:6 }); }catch(eF){ F=null; }
+      if(F && !F.tooShort && F.backtest.rows.length){
+        var bt=F.backtest, best=bt.rows[0], naive=null;
+        for(i=0;i<bt.rows.length;i++){ if(bt.rows[i].key==='naive') naive=bt.rows[i]; }
+        var skill = (naive && naive.rmse>0) ? 1-best.rmse/naive.rmse : 0;
+        var xs=[]; for(i=0;i<n;i++) xs.push(i);
+        var lin=ols(xs,y), pTrend=1;
+        if(lin && lin.r2<1 && n>2) pTrend=pValueT(Math.sqrt(lin.r2*(n-2)/(1-lin.r2)),n-2);
+        else if(lin && lin.r2>=1) pTrend=0;
+        var trendS = (lin && pTrend<0.05) ? ' Across the whole history it '+(lin.m>0?'climbs':'falls')+' by about '+f(Math.abs(lin.m))+' a '+grain+' (the chance of that from noise is '+pWord(pTrend)+').' : '';
+        if(best.key!=='naive' && skill>=0.1){
+          (function(Fx,sk){
+            push({ kind:'forecast', tab:'Forecast', score:40+60*Math.min(sk,0.75),
+              title:'The '+aggWord+' has a pattern worth projecting',
+              why:'With the last '+bt.k+' periods hidden, '+best.name+' missed by '+f(best.rmse)+' on average against '+f(naive.rmse)+' for simply repeating the last value, which is '+pct(sk,0)+' better.'+trendS+
+                ' The next '+grain+' projects to '+f(Fx.point[0])+', with a 95 percent range of '+f(Fx.lo[0])+' to '+f(Fx.hi[0])+'.'+trimNote,
+              caution:'A forecast extends the pattern already in the history. It cannot see a change that has not happened yet.',
+              how:[commas(n)+' periods at '+grain+' grain. The last <b>'+bt.k+'</b> were held back, every method was fitted on the rest and scored on what it had not seen.',
+                'Best method <b>'+esc(best.name)+'</b> at RMSE <code>'+f(best.rmse)+'</code>. Naive, which repeats the last value, scored <code>'+f(naive.rmse)+'</code>. Skill is <code>1 - '+fmt(best.rmse,3)+' / '+fmt(naive.rmse,3)+' = '+pct(sk,1)+'</code>.',
+                'It is recommended when a method beats naive by at least 10 percent. Score is <code>40 + 60 x min('+fmt(sk,2)+', 0.75) = '+fmt(40+60*Math.min(sk,0.75),0)+'</code>.'],
+              go:'Open the forecast',
+              run:function(){
+                setSel('f-dim',date.idx); setSel('f-meas',M===null?-1:M); setSel('f-agg',agg);
+                setSel('f-grain',grain); setSel('f-season','auto'); setSel('f-model','auto'); setSel('f-h','6');
+                forecastRun(); goPane('forecast');
+              } });
+          })(F,skill);
+        } else {
+          skipped.push('Forecast: on the '+bt.k+' periods held back, nothing beat repeating the last value by a useful margin, so there is no pattern here worth projecting.'+trendS);
+        }
+      }
+    } else if(ser){
+      skipped.push('Forecast: '+date.name+' gives only '+n+' complete '+grain+(n===1?'':'s')+', and a backtest needs at least 8.');
+    }
+  } else {
+    skipped.push('Change over time and forecast: there is no usable date column.');
+  }
+
+  /* 6. what moves with the measure */
+  if(num && S.corr && S.corr.pairs.length){
+    var mine=[], k2;
+    for(i=0;i<S.corr.pairs.length;i++){
+      var pr=S.corr.pairs[i];
+      if(pr.ai===M || pr.bi===M) mine.push(pr);
+    }
+    var bestPair=null;
+    for(i=0;i<mine.length;i++){
+      var pp=Math.min(1,pValueR(mine[i].r,mine[i].n)*mine.length);
+      if(mine[i].n>=10 && Math.abs(mine[i].r)>=0.3 && pp<0.05){ bestPair={ pr:mine[i], p:pp }; break; }
+    }
+    if(bestPair){
+      var ca=S.cols[bestPair.pr.ai], cb=S.cols[bestPair.pr.bi], va=[], vb=[];
+      for(k2=0;k2<rows.length;k2++){
+        var x1=ca.vals[rows[k2]], x2=cb.vals[rows[k2]];
+        if(x1===null||x2===null||x1===undefined||x2===undefined) continue;
+        va.push(x1); vb.push(x2);
+      }
+      var rho=spearman(va,vb), r0=bestPair.pr.r;
+      var robust = rho!==null && (rho>0)===(r0>0) && Math.abs(rho)>=0.5*Math.abs(r0);
+      var otherName = bestPair.pr.ai===M ? bestPair.pr.b : bestPair.pr.a;
+      if(Math.abs(r0)>=0.95){
+        (function(bp){
+          push({ kind:'corr', tab:'Correlation', score:34,
+            title:mName+' and '+otherName+' are close to one measure',
+            why:'They correlate at '+bp.pr.r.toFixed(2)+' across '+commas(bp.pr.n)+' rows, which is near enough a straight line that one is almost certainly worked out from the other. Treat them as a single measure. Finding the same pattern in both is one piece of evidence, not two.',
+            caution:'If the two are meant to be independent, a correlation this high is itself worth questioning in the source system.',
+            how:['Pearson r between <b>'+esc(bp.pr.a)+'</b> and <b>'+esc(bp.pr.b)+'</b> is <code>'+bp.pr.r.toFixed(4)+'</code> on '+commas(bp.pr.n)+' rows.',
+              'At 0.95 or above a pair is reported as a likely derived field rather than as a relationship to act on, and scores a fixed <code>34</code>.'],
+            go:'Open the pair',
+            run:function(){ goPane('corr'); insPair(bp.pr.ai,bp.pr.bi); } });
+        })(bestPair);
+      } else (function(bp,rb,rh){
+        var sc=(30+60*Math.abs(bp.pr.r))*(rb?1:0.6);
+        push({ kind:'corr', tab:'Correlation', score:sc,
+          title:mName+' moves with '+otherName,
+          why:'Across '+commas(bp.pr.n)+' rows the two carry a '+strengthWord(bp.pr.r)+' '+(bp.pr.r>0?'positive':'negative')+' correlation of '+bp.pr.r.toFixed(2)+
+            ' (chance of that from noise is '+pWord(bp.p)+' after allowing for the '+mine.length+' pair'+(mine.length===1?'':'s')+' checked). '+
+            (rb ? 'Ranking the values instead of using them raw gives '+rh.toFixed(2)+', so the relationship runs through the whole file rather than a few extreme rows.'
+                : 'Ranking the values instead of using them raw gives only '+(rh===null?'no figure':rh.toFixed(2))+', so a handful of extreme rows are doing much of the work. Look at the scatter before leaning on it.'),
+          caution:'Two measures moving together does not show that either drives the other.',
+          how:['Pearson r between <b>'+esc(bp.pr.a)+'</b> and <b>'+esc(bp.pr.b)+'</b> is <code>'+bp.pr.r.toFixed(4)+'</code> on '+commas(bp.pr.n)+' rows carrying both.',
+            'Its p-value, multiplied by the '+mine.length+' pairs that involve the decision measure, is <code>'+(bp.p<0.0001?'below 0.0001':fmt(bp.p,4))+'</code>.',
+            'Spearman rank correlation on the same rows is <code>'+(rh===null?'n/a':rh.toFixed(4))+'</code>. The pair counts as robust when the two agree in sign and the rank figure is at least half the size.',
+            'Score is <code>(30 + 60 x |r|)'+(rb?'':' x 0.6 for failing the robustness check')+' = '+fmt(sc,0)+'</code>.'],
+          go:'Open the pair',
+          run:function(){ goPane('corr'); insPair(bp.pr.ai,bp.pr.bi); } });
+      })(bestPair,robust,rho);
+    } else if(mine.length){
+      skipped.push('Correlation: no other measure tracks '+mName+' closely enough to rule out noise. The strongest was '+(mine[0].ai===M?mine[0].b:mine[0].a)+' at r = '+mine[0].r.toFixed(2)+'.');
+    }
+  }
+
+  /* 7. concentration */
+  if(dims.length && (M===null || (num && add && focus.stat.min>=0))){
+    var conc=null;
+    for(i=0;i<dims.length;i++){
+      if(dims[i].uniq<3) continue;
+      var a=aggregateRows(rows,dims[i].idx,M,M===null?'count':'sum',null,1000), tot=0;
+      for(j=0;j<a.values.length;j++) tot+=a.values[j];
+      var kk=a.values.length;
+      if(!(tot>0) || kk<3) continue;
+      var s1=a.values[0]/tot, topN=Math.max(1,Math.ceil(kk*0.2)), sTop=0;
+      for(j=0;j<topN;j++) sTop+=a.values[j];
+      sTop/=tot;
+      var excess=(s1-1/kk)/(1-1/kk);
+      var flag = (s1>=0.4 && excess>=0.3) || (kk>=5 && sTop>=0.7);
+      if(flag && (conc===null || excess>conc.excess)) conc={ pc:dims[i], s1:s1, top:a.labels[0], k:kk, topN:topN, sTop:sTop, excess:excess, tot:tot };
+    }
+    if(conc){
+      (function(cn){
+        var sc=40+50*Math.min(1,cn.excess);
+        push({ kind:'concentration', tab:'Charts', score:sc,
+          title:'The '+aggWord+' leans on one '+cn.pc.name,
+          why:cn.top+' alone carries '+pct(cn.s1,0)+' of the '+aggWord+' across '+cn.k+' values of '+cn.pc.name+
+            (cn.topN>1 ? ', and the top '+cn.topN+' carry '+pct(cn.sTop,0) : '')+'. Anything that happens to that group moves the whole figure.',
+          caution:'Concentration is a dependency to know about, not a fault in itself.',
+          how:['The '+esc(aggWord)+' was taken for each value of <b>'+esc(cn.pc.name)+'</b> and each divided by the overall <code>'+f(cn.tot)+'</code>.',
+            'The largest share is <code>'+pct(cn.s1,1)+'</code>. An even spread across '+cn.k+' values would give each <code>'+pct(1/cn.k,1)+'</code>, so the excess is <code>('+pct(cn.s1,1)+' - '+pct(1/cn.k,1)+') / (100% - '+pct(1/cn.k,1)+') = '+pct(cn.excess,1)+'</code>.',
+            'Score is <code>40 + 50 x excess = '+fmt(sc,0)+'</code>.'],
+          go:'Chart it by '+cn.pc.name,
+          run:function(){
+            var ttl=(M===null?'Count':'Total '+mName)+' by '+cn.pc.name, had=false, k3;
+            for(k3=0;k3<S.custom.length;k3++){ if(S.custom[k3].title===ttl) had=true; }
+            if(!had) S.custom.push({ kind:'bar', dim:cn.pc.idx, meas:M, agg:M===null?'count':'sum', grain:'month', custom:true, title:ttl,
+              why:'Added from the recommendations, because '+cn.top+' carries '+pct(cn.s1,0)+' of the total.' });
+            renderCharts(); goPane('charts');
+          } });
+      })(conc);
+    }
+  }
+
+  /* 8. do the entities come back */
+  var cand=cohortCandidates();
+  if(cand.ids.length && cand.dates.length && cand.ids[0].idScore>=100){
+    var idc=cand.ids[0], dtc=cand.dates[0], seenP=dict(), entN=0, evN=0, backN=0, perSeen={}, perN=0;
+    var icol=S.cols[idc.idx], dcol=S.cols[dtc.idx];
+    for(i=0;i<rows.length;i++){
+      var iv=icol.vals[rows[i]], dv2=dcol.vals[rows[i]];
+      if(iv===null||iv===undefined||iv===''||dv2===null||dv2===undefined) continue;
+      var ik=String(iv), bk=bucket(dv2,'month');
+      evN++;
+      if(!perSeen[bk]){ perSeen[bk]=1; perN++; }
+      var sp0=seenP[ik];
+      if(sp0===undefined){ seenP[ik]={ first:bk, back:false }; entN++; }
+      else if(!sp0.back && sp0.first!==bk){ sp0.back=true; backN++; }
+    }
+    var epe = entN ? evN/entN : 0, backShare = entN ? backN/entN : 0;
+    if(entN>=20 && perN>=3 && epe>=1.3){
+      (function(){
+        var sc=45+Math.min(35,(epe-1)*15)+(backShare<0.3?10:0);
+        push({ kind:'cohort', tab:'Cohorts', score:sc,
+          title:'How many '+idc.name+' values come back after their first '+dtc.name,
+          why:commas(entN)+' distinct '+idc.name+' values account for '+commas(evN)+' rows, '+fmt(epe,1)+' each, and '+pct(backShare,0)+
+            ' of them appear in more than one month'+(backShare<0.3?', so most are seen once and never again':'')+'. The retention triangle shows when they return and which starting cohorts hold up.',
+          caution:'Retention is read from the dates in this file only. Activity outside its date range is invisible to it.',
+          how:['<b>'+esc(idc.name)+'</b> was taken as the entity and <b>'+esc(dtc.name)+'</b> as the date, across '+commas(perN)+' months that hold rows.',
+            '<code>'+commas(backN)+' of '+commas(entN)+'</code> entities appear in a month other than their first, which is <code>'+pct(backShare,1)+'</code>. Rows per entity is <code>'+fmt(epe,2)+'</code>.',
+            'It is recommended at 1.3 rows per entity or more. Score is <code>45 + min(35, ('+fmt(epe,2)+' - 1) x 15)'+(backShare<0.3?' + 10 because under 30 percent return':'')+' = '+fmt(sc,0)+'</code>.'],
+          go:'Build the cohorts',
+          run:function(){
+            setSel('c-id',idc.idx); setSel('c-date',dtc.idx);
+            setSel('c-val',(M!==null&&add)?M:-1); setSel('c-grain','month');
+            if($('c-run').onclick) $('c-run').onclick();
+            goPane('cohort');
+          } });
+      })();
+    }
+  }
+
+  /* 9. is the average a fair summary */
+  if(isRate){
+    /* a rate has no skew to speak of */
+  } else if(focus){
+    var st=focus.stat, gap = st.med!==0 ? (st.mean-st.med)/Math.abs(st.med) : null, os=st.out/Math.max(1,st.n);
+    if((Math.abs(st.skew)>=1.5 && gap!==null && Math.abs(gap)>=0.15) || os>=0.05){
+      var scD=35+Math.min(30,(gap===null?0:Math.abs(gap))*60);
+      push({ kind:'distribution', tab:'Columns', score:scD,
+        title:'Quote the median of '+mName+', not the mean',
+        why:'The mean is '+f(st.mean)+' and the median is '+f(st.med)+(gap===null?'':', a gap of '+pct(Math.abs(gap),0))+'. Skew is '+fmt(st.skew,1)+' and '+commas(st.out)+' values ('+pct(os,1)+
+          ') sit beyond '+ruleLabel()+', so a few large rows are pulling the average away from what a typical row looks like.',
+        caution:'Totals are unaffected. This matters wherever an average of '+mName+' is being compared or quoted.',
+        how:['Mean <code>'+f(st.mean)+'</code>, median <code>'+f(st.med)+'</code>, skew <code>'+fmt(st.skew,2)+'</code>, outliers <code>'+commas(st.out)+' of '+commas(st.n)+'</code>.',
+          'It is recommended when skew is at least 1.5 with a mean to median gap of 15 percent or more, or when over 5 percent of values are outliers.',
+          'Score is <code>35 + min(30, gap x 60) = '+fmt(scD,0)+'</code>.'],
+        go:'Open '+mName+' in Columns',
+        run:function(){ goPane('columns'); insStat(focus,'Median'); } });
+    }
+  } else {
+    skipped.push('No numeric measure with any spread was found, so the analyses here work from row counts only.');
+  }
+
+  items.sort(function(a,b){ return b.score-a.score; });
+  for(i=0;i<items.length;i++) items[i].rank=i+1;
+  S.recs={ items:items, skipped:skipped, focusIdx:M, focusName:mName, auto:auto, agg:agg,
+    isRate:isRate,
+    measures:meas.map(function(m){ return { idx:m.pc.idx, name:m.pc.name+(m.rate?' (rate)':'') }; }) };
+  return S.recs;
+}
+function insRec(it){
+  var how=(it.how||[]).slice();
+  how.push('This ranks where to look. It does not make the decision, and it reads only the rows currently in scope.');
+  openInspector({ sub:'Recommendation '+it.rank, title:it.title, name:'recommendation-'+it.rank, how:how,
+    custom:{ headers:['Item','Value'], rows:[['Rank',String(it.rank)],['Score out of 100',fmt(it.score,0)],['Priority',recLevelWord(it.level)],['Opens in',it.tab]] } });
+}
+function renderRecs(){
+  var box=$('reclist');
+  if(!box) return;
+  var R=null;
+  try{ R=recommend(); }catch(e){ R=null; if(window.console&&window.console.error) window.console.error(e); }
+  clear(box);
+  var sel=$('rec-focus'), i, o;
+  clear(sel);
+  if(!R){ box.appendChild(el('div','empty','The recommendations could not be worked out for this file.')); return; }
+  o=document.createElement('option'); o.value='auto';
+  o.textContent = R.measures.length ? 'Automatic ('+R.measures[0].name+')' : 'Row count';
+  sel.appendChild(o);
+  for(i=0;i<R.measures.length;i++){
+    o=document.createElement('option'); o.value=String(R.measures[i].idx); o.textContent=R.measures[i].name; sel.appendChild(o);
+  }
+  sel.value = R.auto ? 'auto' : String(R.focusIdx);
+  if(!R.items.length){
+    box.appendChild(el('div','empty','Nothing in this file stands out strongly enough to recommend. That is a finding in itself: the reasons are listed below.'));
+  }
+  for(i=0;i<R.items.length;i++){
+    (function(it){
+      var row=el('div','rec '+it.level);
+      row.appendChild(el('div','rec-n',String(it.rank)));
+      var b=el('div','rec-b');
+      var t=el('div','rec-t');
+      t.appendChild(el('span','rec-ttl',it.title));
+      t.appendChild(el('span','chip '+(it.level==='high'?'coral':(it.level==='mid'?'amber':'')),recLevelWord(it.level)));
+      t.appendChild(el('span','chip sig',it.tab));
+      b.appendChild(t);
+      b.appendChild(el('p','rec-w',it.why));
+      if(it.caution) b.appendChild(el('p','rec-c',it.caution));
+      var br=el('div','rec-a');
+      var go=el('button','btn pri',it.go||'Open');
+      go.onclick=function(){ try{ it.run(); }catch(e2){ toast('That analysis could not be opened.'); } };
+      var why=el('button','btn','How this was ranked');
+      why.onclick=function(){ insRec(it); };
+      br.appendChild(go); br.appendChild(why);
+      b.appendChild(br);
+      row.appendChild(b);
+      box.appendChild(row);
+    })(R.items[i]);
+  }
+  if(R.skipped.length){
+    var det=document.createElement('details'); det.className='rec-skip';
+    var sm=document.createElement('summary');
+    sm.textContent='Checked and not recommended ('+R.skipped.length+')';
+    det.appendChild(sm);
+    var ul=el('ul');
+    for(i=0;i<R.skipped.length;i++) ul.appendChild(el('li',null,R.skipped[i]));
+    det.appendChild(ul);
+    box.appendChild(det);
+  }
 }
 
 /* ---------------- telemetry ---------------- */
@@ -2784,12 +3585,12 @@ function catFilter(idx,pc){
   var all=(pc.all||pc.top||[]).slice(0,26);
   for(var i=0;i<all.length;i++){
     (function(val){
-      var b=el('button','val'+((f&&f.set&&f.set[val])?' on':''),val.length>18?val.slice(0,17)+'\u2026':val);
+      var b=el('button','val'+((f&&has(f.set,val))?' on':''),val.length>18?val.slice(0,17)+'\u2026':val);
       b.title=val;
       b.onclick=function(){
         var ff=S.filters[idx];
         if(!ff){ ff={ kind:'cat', set:{} }; S.filters[idx]=ff; }
-        if(ff.set[val]) delete ff.set[val]; else ff.set[val]=1;
+        if(has(ff.set,val)) delete ff.set[val]; else ff.set[val]=1;
         var any=false; for(var k in ff.set){ if(Object.prototype.hasOwnProperty.call(ff.set,k)) any=true; }
         if(!any) delete S.filters[idx];
         applyFilters();
@@ -2864,7 +3665,7 @@ function applyFilters(quiet){
     if(S.rowFilter && !S.rowFilter.set[r]) ok=false;
     for(var i=0;ok && i<keys.length;i++){
       var idx=+keys[i], f=S.filters[keys[i]], v=S.cols[idx].vals[r];
-      if(f.kind==='cat'){ if(v===null||!f.set[String(v)]){ ok=false; break; } }
+      if(f.kind==='cat'){ if(v===null||!has(f.set,String(v))){ ok=false; break; } }
       else if(f.kind==='num'){
         if(v===null){ ok=false; break; }
         if(f.lo!==null&&f.lo!==undefined&&v<f.lo){ ok=false; break; }
@@ -3046,14 +3847,15 @@ function proposals(){
   if(times.length && meas.length){
     var t=times[0];
     for(i=0;i<Math.min(2,meas.length);i++){
-      out.push({ kind:'line', dim:t.idx, meas:meas[i].idx, agg:'sum', grain:t.grain,
-        title:meas[i].name+' over time',
-        why:t.name+' parsed as a date spanning '+fmt(t.spanDays,0)+' days, so '+meas[i].name+' is summed at '+t.grain+' grain.' });
+      var addL=additive(meas[i]);
+      out.push({ kind:'line', dim:t.idx, meas:meas[i].idx, agg:addL?'sum':'avg', grain:t.grain,
+        title:(addL?'':'Average ')+meas[i].name+' over time',
+        why:t.name+' parsed as a date spanning '+fmt(t.spanDays,0)+' days, so '+meas[i].name+' is '+(addL?'summed':'averaged, because it is a rate or a level rather than a quantity that adds up,')+' at '+t.grain+' grain.' });
     }
   }
   for(i=0;i<Math.min(2,cats.length) && meas.length;i++){
-    out.push({ kind:'bar', dim:cats[i].idx, meas:meas[0].idx, agg:'sum',
-      title:meas[0].name+' by '+cats[i].name,
+    out.push({ kind:'bar', dim:cats[i].idx, meas:meas[0].idx, agg:additive(meas[0])?'sum':'avg',
+      title:(additive(meas[0])?'':'Average ')+meas[0].name+' by '+cats[i].name,
       why:cats[i].name+' holds only '+cats[i].uniq+' distinct values, which is a clean grouping key for a measure.' });
   }
   if(S.corr && S.corr.pairs.length){
@@ -3067,7 +3869,7 @@ function proposals(){
   for(i=0;i<Math.min(2,meas.length);i++){
     out.push({ kind:'hist', meas:meas[i].idx,
       title:'Distribution of '+meas[i].name,
-      why:'Skew of '+fmt(meas[i].stat.skew,2)+' and '+meas[i].stat.out+' values beyond 1.5 IQR make the shape worth seeing directly.' });
+      why:'Skew of '+fmt(meas[i].stat.skew,2)+' and '+meas[i].stat.out+' values beyond '+ruleLabel()+' make the shape worth seeing directly.' });
   }
   if(cats.length && !meas.length){
     out.push({ kind:'bar', dim:cats[0].idx, meas:null, agg:'count',
@@ -3223,14 +4025,14 @@ function cohortCandidates(){
 }
 function computeCohorts(idIdx,dateIdx,valIdx,grain){
   var ic=S.cols[idIdx], dc=S.cols[dateIdx], vc=valIdx===null?null:S.cols[valIdx];
-  var first={}, i, r, id, dv;
+  var first=dict(), i, r, id, dv;
   for(i=0;i<S.view.length;i++){
     r=S.view[i]; id=ic.vals[r]; dv=dc.vals[r];
     if(id===null||dv===null) continue;
     id=String(id);
     if(first[id]===undefined || dv<first[id]) first[id]=dv;
   }
-  var cohortOf={}, sizes={}, keys=[];
+  var cohortOf=dict(), sizes={}, keys=[];
   for(id in first){
     if(!Object.prototype.hasOwnProperty.call(first,id)) continue;
     var ck=bucket(first[id],grain);
@@ -3250,7 +4052,7 @@ function computeCohorts(idIdx,dateIdx,valIdx,grain){
     if(off<0) off=0;
     if(off>maxOff) maxOff=off;
     if(!active[ck2]){ active[ck2]={}; rev[ck2]={}; events[ck2]={}; cellIdx[ck2]={}; }
-    if(!active[ck2][off]) active[ck2][off]={};
+    if(!active[ck2][off]) active[ck2][off]=dict();
     if(!cellIdx[ck2][off]) cellIdx[ck2][off]=[];
     cellIdx[ck2][off].push(r);
     active[ck2][off][id]=1;
@@ -3304,6 +4106,13 @@ function computeCohorts(idIdx,dateIdx,valIdx,grain){
     avgRet:m1, ltv:ltv, maxOff:maxOff, valName:vc?vc.name:'events',
     idName:ic.name, dateName:dc.name, cur:vc?vc.cur:false };
 }
+function cohortReturn(c){
+  var v = c.avgRet.length>1 && c.avgRet[1]!==null ? c.avgRet[1] : 0, off=1, ro;
+  if(!(v>0)){
+    for(ro=2;ro<c.avgRet.length;ro++){ if(c.avgRet[ro]!==null && c.avgRet[ro]>0){ v=c.avgRet[ro]; off=ro; break; } }
+  }
+  return { v:v, off:off };
+}
 function renderCohortControls(){
   var cand=cohortCandidates();
   var ok = cand.ids.length && cand.dates.length;
@@ -3336,13 +4145,16 @@ function renderCohortOut(){
   if(!c) return;
   var kpi=$('cohkpi'); clear(kpi);
   var u=c.cur?'$':'';
-  var repeat = c.avgRet.length>1 && c.avgRet[1]!==null ? c.avgRet[1] : 0;
+  /* data on a cycle longer than the grain, such as academic terms bucketed by month, has nobody
+     active one period later by construction. Reading that as total churn would be wrong, so report
+     the first later period in which anyone returns */
+  var cr0=cohortReturn(c), repeat=cr0.v, repOff=cr0.off;
   addStat(kpi,'Entities',commas(c.entities),function(){ insCohortKPI('Entities'); });
   addStat(kpi,'Events',commas(c.events),function(){ insCohortKPI('Events'); });
   addStat(kpi,'Events per entity',fmt(c.events/Math.max(1,c.entities),2),function(){ insCohortKPI('Entities'); });
   addStat(kpi,'Total '+(c.valName==='events'?'events':c.valName),u+fmt(c.value||c.events),function(){ insCohortKPI('Events'); });
-  addStat(kpi,(c.grain==='week'?'W1':'M1')+' retention',fmt(repeat,1)+'%',function(){ insCohortKPI('M1'); });
-  addStat(kpi,'Churn after first',fmt(100-repeat,1)+'%',function(){ insCohortKPI('M1'); });
+  addStat(kpi,(c.grain==='week'?'W':'M')+repOff+' retention',fmt(repeat,1)+'%',function(){ insCohortKPI('M1'); });
+  addStat(kpi,repOff===1?'Churn after first':'Not back by '+(c.grain==='week'?'W':'M')+repOff,fmt(100-repeat,1)+'%',function(){ insCohortKPI('M1'); });
   var last=null;
   for(var i=c.ltv.length-1;i>=0;i--){ if(c.ltv[i]!==null){ last=c.ltv[i]; break; } }
   addStat(kpi,'Value per entity',u+fmt(last||0),function(){ insCohortKPI('Value'); });
@@ -3411,6 +4223,13 @@ function briefPayload(){
     quality:{ score:p.quality.score, grade:p.quality.grade, duplicateRows:p.quality.dup,
       flags:p.quality.flags.map(function(f){ return f.t+': '+f.d; }) },
     correlations: S.corr ? S.corr.pairs.slice(0,8).map(function(x){ return x.a+' x '+x.b+' r='+x.r.toFixed(3); }) : [] };
+  if(S.recs && S.recs.items.length){
+    pay.recommendedAnalyses={ decisionMeasure:S.recs.focusName,
+      rankedBy:'effect size, a significance test corrected for the number of fields scanned, and the rows behind each finding, all computed locally from the rows in scope',
+      ranked:S.recs.items.slice(0,6).map(function(it){
+        return { rank:it.rank, priority:recLevelWord(it.level), analysis:it.title, opensIn:it.tab, evidence:it.why, caution:it.caution||'' }; }),
+      checkedAndNotRecommended:S.recs.skipped.slice(0,6) };
+  }
   if(S.cohort){
     pay.cohorts={ entity:S.cohort.idName, grain:S.cohort.grain, entities:S.cohort.entities,
       events:S.cohort.events, avgRetentionCurve:S.cohort.avgRet.map(function(v){ return v===null?null:+v.toFixed(1); }),
@@ -3495,6 +4314,7 @@ function briefPrompt(payload,q,ctx){
   P.push('Write a tight executive briefing in markdown with these sections in this order, using ## headings: '+
     (q?'The question, ':'')+'What this data is, What stands out, Data quality concerns, Three analyses to run next. '+
     'Be concrete and cite the actual numbers from the profile. No preamble, no closing pleasantries. Keep it under '+(q?'500':'400')+' words.');
+  if(payload && payload.recommendedAnalyses) P.push('The profile carries recommendedAnalyses, a ranking computed from the data itself. Build the section "Three analyses to run next" from its top three entries in rank order, giving the evidence each one cites and its caution. Do not substitute analyses of your own, and do not present a ranked item as a conclusion: each is a place to look.');
   if(ctx) P.push('ANALYST CONTEXT START\n'+ctx+'\nANALYST CONTEXT END');
   if(q) P.push('QUESTION:\n'+q);
   P.push('PROFILE:\n'+JSON.stringify(payload));
@@ -3503,10 +4323,10 @@ function briefPrompt(payload,q,ctx){
 function mdToHtml(t){
   var lines=String(t).split(/\n/), out=[], inUl=false;
   for(var i=0;i<lines.length;i++){
-    var L=lines[i].replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    var L=esc(lines[i]).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
     if(/^#{1,4}\s+/.test(L)){
       if(inUl){ out.push('</ul>'); inUl=false; }
-      out.push('<h3>'+esc(L.replace(/^#{1,4}\s+/,'')).replace(/&lt;strong&gt;/g,'<strong>')+'</h3>');
+      out.push('<h3>'+L.replace(/^#{1,4}\s+/,'')+'</h3>');
       continue;
     }
     if(/^\s*[-*]\s+/.test(L)){
@@ -3592,6 +4412,23 @@ function buildReport(){
   L.push('');
   for(i=0;i<p.quality.flags.length;i++) L.push('- '+p.quality.flags[i].t+': '+p.quality.flags[i].d);
   L.push('');
+  if(S.recs && S.recs.items.length){
+    L.push('## Where to look first');
+    L.push('');
+    L.push('Ranked for the decision measure '+S.recs.focusName+', from evidence computed on the rows in scope.');
+    L.push('');
+    for(i=0;i<S.recs.items.length;i++){
+      var ri=S.recs.items[i];
+      L.push((i+1)+'. **'+ri.title+'** ('+recLevelWord(ri.level)+', '+ri.tab+'). '+ri.why+(ri.caution?' '+ri.caution:''));
+    }
+    L.push('');
+    if(S.recs.skipped.length){
+      L.push('Checked and not recommended:');
+      L.push('');
+      for(i=0;i<S.recs.skipped.length;i++) L.push('- '+S.recs.skipped[i]);
+      L.push('');
+    }
+  }
   L.push('## Columns');
   L.push('');
   L.push('| Column | Type | Role | Missing | Unique | Summary |');
@@ -3734,7 +4571,7 @@ function rowsWhere(fn){
 function colRows(ci){ return rowsWhere(function(r){ return S.cols[ci].vals[r]!==null; }); }
 function nullRows(ci){ return rowsWhere(function(r){ return S.cols[ci].vals[r]===null; }); }
 function dupRowIdx(){
-  var seen={}, out=[];
+  var seen=dict(), out=[];
   for(var i=0;i<S.view.length;i++){
     var r=S.view[i], key=S.rows[r].join('\u0001');
     if(seen[key]) out.push(r); else seen[key]=1;
@@ -4159,7 +4996,7 @@ function insPair(ai,bi){
 /* ---- cohorts ---- */
 function insCohortCell(i,j){
   var c=S.cohort, rows=(c.cellRows[i]&&c.cellRows[i][j])?c.cellRows[i][j].slice():[];
-  var ids={}, n=0;
+  var ids=dict(), n=0;
   for(var k=0;k<rows.length;k++){
     var id=String(S.cols[c.idIdx].vals[rows[k]]);
     if(!ids[id]){ ids[id]=1; n++; }
@@ -4198,7 +5035,7 @@ function insCohortOffset(j){
 function insCohortKPI(which){
   var c=S.cohort, i, rows=[];
   if(which==='Entities'){
-    var first={}, cnt={}, val={};
+    var first=dict(), cnt=dict(), val=dict();
     for(i=0;i<S.view.length;i++){
       var r=S.view[i], id=S.cols[c.idIdx].vals[r], dv=S.cols[c.dateIdx].vals[r];
       if(id===null||dv===null) continue;
@@ -4229,8 +5066,12 @@ function insCohortKPI(which){
     how.push('The triangle charts the '+c.shownCohorts+' most recent of '+c.allCohorts+' cohorts, so it shows fewer rows than this total.');
   }
   if(which==='M1'){
-    how=['First period retention averages the second column of the triangle across every cohort old enough to have one.',
-      'Here that is <b>'+fmt(c.avgRet[1]||0,1)+'%</b>, so <b>'+fmt(100-(c.avgRet[1]||0),1)+'%</b> of entities never came back after the period they arrived in.'];
+    var crk=cohortReturn(c), unit=(c.grain==='week'?'week':'month');
+    how = crk.off===1
+      ? ['First period retention averages the second column of the triangle across every cohort old enough to have one.',
+         'Here that is <b>'+fmt(crk.v,1)+'%</b>, so <b>'+fmt(100-crk.v,1)+'%</b> of entities were not active in the period after the one they arrived in.']
+      : ['Nobody in this file is active one '+unit+' after arriving, which is what happens when the dates fall on a longer cycle such as terms or quarters. Reading that as total churn would be wrong.',
+         'The first later period in which anyone returns is '+crk.off+' '+unit+'s on. Averaged across the cohorts old enough to have reached it, <b>'+fmt(crk.v,1)+'%</b> are active then, so <b>'+fmt(100-crk.v,1)+'%</b> had not come back by that point.'];
   } else if(which==='Value'){
     var last=null;
     for(i=c.ltv.length-1;i>=0;i--){ if(c.ltv[i]!==null){ last=c.ltv[i]; break; } }
@@ -4248,7 +5089,7 @@ function insAggBucket(a,j,grain){
   if(keys.length===1){ insCatValue(pc,keys[0]); return; }
   var set={};
   for(var i=0;i<keys.length;i++) set[String(keys[i])]=1;
-  var rows=rowsWhere(function(r){ var v=dc.vals[r]; return v!==null && set[String(v)]===1; });
+  var rows=rowsWhere(function(r){ var v=dc.vals[r]; return v!==null && has(set,String(v)); });
   openInspector({ sub:'Grouped tail', title:pc.name+' \u00B7 the other '+keys.length+' values', name:pc.name+'-other',
     how:['The chart shows the largest groups individually and folds the remaining <b>'+keys.length+'</b> values into one bar so the axis stays readable.',
       'Those values are: '+esc(keys.slice(0,40).join(', '))+(keys.length>40?' and more.':'.')],
@@ -4439,7 +5280,19 @@ var HELP=[
  { c:'AI', q:'What is the analyst context box for?',
    a:'For the things a file cannot show. A pricing change in March, a system migration that broke a field for six weeks, a campaign that ran in one region only. The model has no way of knowing any of it, and without it a briefing can confidently describe an artefact as a trend.' },
  { c:'AI', q:'Is what I type in the context box treated as fact?',
-   a:'No, deliberately. It is passed as an unverified claim from a person, fenced off from the instructions so nothing written in it can redirect the model. Any statement it informs has to be marked analyst-supplied so you can tell it apart from what the numbers show, and it never overrides a computed figure: where your note disagrees with the arithmetic, the briefing is told to say so and give the arithmetic. It also appears in the exported report in its own marked block stating that it came from you and not from the data.' }
+   a:'No, deliberately. It is passed as an unverified claim from a person, fenced off from the instructions so nothing written in it can redirect the model. Any statement it informs has to be marked analyst-supplied so you can tell it apart from what the numbers show, and it never overrides a computed figure: where your note disagrees with the arithmetic, the briefing is told to say so and give the arithmetic. It also appears in the exported report in its own marked block stating that it came from you and not from the data.' },
+ { c:'Using it', q:'What is Where to look first?',
+   a:'A ranked list at the top of the Overview naming the analyses most likely to change a decision on this file. Each one gives the evidence in plain figures, a caution about what it does not show, and a button that sets the right tab up and runs it. It is worked out from the rows in scope, so it changes when you filter.' },
+ { c:'Using it', q:'How are the recommendations ranked?',
+   a:'On three things computed from your data: how big the effect is, whether a significance test says it could be noise once it is corrected for the number of fields scanned to find it, and how many rows stand behind it. A reversal under a change of mix and poor data quality rank highest, because they are the most expensive things to get wrong. Press How this was ranked on any item for its arithmetic.' },
+ { c:'Using it', q:'What is the decision measure?',
+   a:'The number the recommendations are built around. Signal Desk picks one automatically, favouring money and fields named like revenue, enrollment or total, and you can change it with the selector on the card. Quantities that add up are totalled. Rates, scores and prices are averaged, because a sum of them means nothing.' },
+ { c:'Using it', q:'Why was an analysis not recommended?',
+   a:'Because the evidence for it was weak, or the file cannot support it. The card lists every analysis it checked and set aside with the reason, such as a gap between groups that noise could produce, or too few periods to backtest a forecast. Nothing standing out is a finding too.' },
+ { c:'Forecast', q:'Why was a period left out of my forecast?',
+   a:'Because the file only covers part of it. If the last month holds rows through the 14th while every other month runs to its end, its total is half a month, and a forecast would read that as a collapse. Totals and counts leave unfinished end periods out by default and say so. Averages keep them, since half a month still gives a fair average. Set Unfinished periods to Keep to override.' },
+ { c:'Statistics', q:'How are blank cells treated in an average?',
+   a:'They are left out. An average is the total divided by the number of values that exist, so a group with ten rows and four blanks is averaged over six. Counting the blanks would treat each as a zero and pull the average down. The verifier recomputes group averages this way and compares.' }
 ];
 
 function helpCats(){
@@ -4526,7 +5379,7 @@ function groupsFor(ci,grain,cap){
   return groupsForRows(S.view,ci,grain,cap);
 }
 function groupsForRows(rows,ci,grain,cap){
-  var c=S.cols[ci], map={}, keys=[], i;
+  var c=S.cols[ci], map=dict(), keys=[], i;
   for(i=0;i<rows.length;i++){
     var r=rows[i], v=c.vals[r];
     if(v===null||v===undefined||v==='') continue;
@@ -4550,14 +5403,14 @@ function keyOf(ci,r,grain){
 }
 function buildPivot(rowIdx,colIdx,measIdx,agg,grain){
   var rg=groupsFor(rowIdx,grain,20), cg=groupsFor(colIdx,grain,12);
-  var rMap={}, cMap={}, i;
+  var rMap=dict(), cMap=dict(), i;
   for(i=0;i<rg.keys.length;i++) rMap[rg.keys[i]]=i;
   for(i=0;i<cg.keys.length;i++) cMap[cg.keys[i]]=i;
   var rN=rg.keys.length+(rg.folded?1:0), cN=cg.keys.length+(cg.folded?1:0);
   var cells=[], j;
   for(i=0;i<rN;i++){
     cells.push([]);
-    for(j=0;j<cN;j++) cells[i].push({ s:0, n:0, rows:[] });
+    for(j=0;j<cN;j++) cells[i].push({ s:0, n:0, vn:0, rows:[] });
   }
   var used=0, skipped=0;
   for(i=0;i<S.view.length;i++){
@@ -4570,28 +5423,28 @@ function buildPivot(rowIdx,colIdx,measIdx,agg,grain){
     cell.n++; cell.rows.push(r);
     if(measIdx!==null && measIdx!==undefined){
       var v=S.cols[measIdx].vals[r];
-      if(v!==null && isFinite(v)) cell.s+=v;
+      if(v!==null && v!==undefined && isFinite(v)){ cell.s+=v; cell.vn++; }
     }
     used++;
   }
-  function val(cell){ return agg==='count' ? cell.n : (agg==='avg' ? (cell.n?cell.s/cell.n:null) : cell.s); }
-  var m=[], rowTot=[], colTot=[], grand={ s:0, n:0 }, mx=null, mn=null;
+  function val(cell){ return agg==='count' ? cell.n : (agg==='avg' ? (cell.vn?cell.s/cell.vn:null) : cell.s); }
+  var m=[], rowTot=[], colTot=[], grand={ s:0, n:0, vn:0 }, mx=null, mn=null;
   for(i=0;i<rN;i++){
     m.push([]);
-    var rs={ s:0, n:0 };
+    var rs={ s:0, n:0, vn:0 };
     for(j=0;j<cN;j++){
       var cell2=cells[i][j], v2=cell2.n?val(cell2):null;
       m[i].push(v2);
-      rs.s+=cell2.s; rs.n+=cell2.n;
+      rs.s+=cell2.s; rs.n+=cell2.n; rs.vn+=cell2.vn;
       if(v2!==null){ if(mx===null||v2>mx) mx=v2; if(mn===null||v2<mn) mn=v2; }
     }
-    rowTot.push(agg==='count'?rs.n:(agg==='avg'?(rs.n?rs.s/rs.n:null):rs.s));
-    grand.s+=rs.s; grand.n+=rs.n;
+    rowTot.push(agg==='count'?rs.n:(agg==='avg'?(rs.vn?rs.s/rs.vn:null):rs.s));
+    grand.s+=rs.s; grand.n+=rs.n; grand.vn+=rs.vn;
   }
   for(j=0;j<cN;j++){
-    var cs={ s:0, n:0 };
-    for(i=0;i<rN;i++){ cs.s+=cells[i][j].s; cs.n+=cells[i][j].n; }
-    colTot.push(agg==='count'?cs.n:(agg==='avg'?(cs.n?cs.s/cs.n:null):cs.s));
+    var cs={ s:0, n:0, vn:0 };
+    for(i=0;i<rN;i++){ cs.s+=cells[i][j].s; cs.n+=cells[i][j].n; cs.vn+=cells[i][j].vn; }
+    colTot.push(agg==='count'?cs.n:(agg==='avg'?(cs.vn?cs.s/cs.vn:null):cs.s));
   }
   var rowLabels=rg.keys.map(function(k){ return rg.isDate?dateLabel(+k,grain==='week'?'day':'month'):k; });
   if(rg.folded) rowLabels.push('Other ('+rg.folded.length+')');
@@ -4600,7 +5453,7 @@ function buildPivot(rowIdx,colIdx,measIdx,agg,grain){
   return { rowIdx:rowIdx, colIdx:colIdx, measIdx:measIdx, agg:agg, grain:grain,
     rowLabels:rowLabels, colLabels:colLabels, cells:cells, m:m,
     rowTot:rowTot, colTot:colTot,
-    grand: agg==='count'?grand.n:(agg==='avg'?(grand.n?grand.s/grand.n:null):grand.s),
+    grand: agg==='count'?grand.n:(agg==='avg'?(grand.vn?grand.s/grand.vn:null):grand.s),
     max:mx, min:mn, used:used, skipped:skipped,
     rowFolded:rg.folded, colFolded:cg.folded };
 }
@@ -4973,7 +5826,13 @@ function refreshDriverPeriods(){
     o=document.createElement('option'); o.value=String(ps[i]); o.textContent=dateLabel(ps[i],g); a.appendChild(o);
     o=document.createElement('option'); o.value=String(ps[i]); o.textContent=dateLabel(ps[i],g); b.appendChild(o);
   }
-  if(ps.length>1){ a.value=String(ps[ps.length-2]); b.value=String(ps[ps.length-1]); }
+  if(ps.length>1){
+    /* default to the two most recent complete periods, not to an unfinished one at the end */
+    var hiI=ps.length-1, dpi=parseInt($('d-pdim').value,10);
+    var epp=isNaN(dpi)?null:edgePartial(S.view,dpi,g);
+    if(epp && epp.last && ps.length>2) hiI=ps.length-2;
+    a.value=String(ps[hiI-1]); b.value=String(ps[hiI]);
+  }
 }
 function refreshDriverBuilder(){
   var p=S.profile;
@@ -5123,6 +5982,12 @@ function renderDrivers(){
   addStat(kpi,'Change', signedBy(f, useRate?rate.rateDelta:sum.delta));
   addStat(kpi,'Groups in '+dimName, commas(sum.allMembers.length));
   box.appendChild(kpi);
+  if(D.meta.partial && D.meta.partial.length){
+    var ub=el('div','banner'); ub.style.marginTop='12px';
+    ub.innerHTML='<span><b>One of these periods is unfinished.</b> '+D.meta.partial.map(function(x){ return '<b>'+esc(x.label)+'</b> '+esc(x.text); }).join(', and ')+
+      ', while the periods between run to their end. A total or a count over part of a period is not comparable with one over a whole period, so much of the change below is the calendar rather than the business. Compare two complete periods, or switch the aggregate to Average.</span>';
+    box.appendChild(ub);
+  }
   if(!D.rowsA.length || !D.rowsB.length){
     var nb=el('div','banner'); nb.style.marginTop='12px';
     nb.innerHTML='<span><b>One side of this comparison is empty.</b> Every group reads as new or gone, so what follows is a listing rather than an explanation. In selection mode this happens when no filter is applied, because there is nothing left over to compare against.</span>';
@@ -5283,6 +6148,7 @@ function syncForecastSelects(){
   $('f-season').value=String(P.season||'auto');
   $('f-model').value=P.model||'auto';
   $('f-h').value=String(P.horizon||6);
+  if($('f-partial')) $('f-partial').value=P.partial||'trim';
 }
 function fcFmt(){
   var P=S.forecastParams;
@@ -5299,7 +6165,7 @@ function forecastRun(){
   if(ag!=='count' && (isNaN(mi)||mi===-1)){ toast('Pick a measure, or switch the aggregate to Count.'); return; }
   var params={ dateIdx:di, measIdx:(ag==='count'||isNaN(mi)||mi===-1)?null:mi,
     agg:ag, grain:gr, season:$('f-season').value, model:$('f-model').value,
-    horizon:parseInt($('f-h').value,10)||6 };
+    horizon:parseInt($('f-h').value,10)||6, partial:($('f-partial')?$('f-partial').value:'trim') };
   var out;
   try{ out=fcExplain(params); }
   catch(e){ toast('That series could not be forecast.'); return; }
@@ -5410,6 +6276,21 @@ function renderForecast(){
         :'They were read as zero, because a total or a count with nothing in it is zero.')+
       ' A long run of empty periods usually means the grain is too fine for this file.</span>';
     box.appendChild(gb);
+  }
+  var tr0=ser.trimmed||{}, kp0=ser.kept||{}, pbits=[];
+  if(tr0.last) pbits.push('<b>'+esc(tr0.last.label)+'</b> has rows only through '+iso(tr0.last.through)+', about '+pct(tr0.last.frac,0)+' of the way in');
+  if(tr0.first) pbits.push('<b>'+esc(tr0.first.label)+'</b> has rows only from '+iso(tr0.first.from)+', covering about '+pct(tr0.first.frac,0)+' of it');
+  if(pbits.length){
+    var pbn=el('div','banner'); pbn.style.marginTop='12px';
+    pbn.innerHTML='<span><b>An unfinished period was left out.</b> '+pbits.join(', and ')+', while every other period runs to its end. A part-filled period reads as a fall that never happened and would drag the forecast with it, so the series uses complete periods only. Set Unfinished periods to Keep if the period really is complete.</span>';
+    box.appendChild(pbn);
+  } else if(kp0.last||kp0.first){
+    var pkn=el('div','banner'); pkn.style.marginTop='12px';
+    pkn.innerHTML='<span><b>An end period looks unfinished and is being counted as complete.</b> '+
+      (kp0.last?'<b>'+esc(kp0.last.label)+'</b> has rows only through '+iso(kp0.last.through)+'. ':'')+
+      (kp0.first?'<b>'+esc(kp0.first.label)+'</b> has rows only from '+iso(kp0.first.from)+'. ':'')+
+      'With Unfinished periods set to Keep, the forecast starts from a figure that is probably too low.</span>';
+    box.appendChild(pkn);
   }
   if(F.fellBack){
     var fb=el('div','banner'); fb.style.marginTop='12px';
@@ -5597,6 +6478,28 @@ function selfCheck(){
   }
   add('Grouped totals add back to the ungrouped total',aggBad===0,aggNote);
 
+  var avgBad=0, avgNote='No measure and grouping field to check.';
+  if(meas.length){
+    for(i=0;i<dims.length && i<6;i++){
+      var av=aggregate(dims[i].idx,meas[0].idx,'avg',null,1000), gS=dict(), gN=dict(), gk;
+      for(j=0;j<S.view.length;j++){
+        var r5=S.view[j], dv5=S.cols[dims[i].idx].vals[r5], mv5=S.cols[meas[0].idx].vals[r5];
+        if(dv5===null||dv5===undefined||dv5==='') continue;
+        if(mv5===null||mv5===undefined||!isFinite(mv5)) continue;
+        gk=String(dv5);
+        if(gS[gk]===undefined){ gS[gk]=0; gN[gk]=0; }
+        gS[gk]+=mv5; gN[gk]++;
+      }
+      for(j=0;j<av.labels.length;j++){
+        var lb=av.labels[j];
+        if(gN[lb]===undefined || !near(av.values[j],gS[lb]/gN[lb],1e-9)) avgBad++;
+      }
+      if(i===0 && av.labels.length) avgNote='Average '+meas[0].name+' for '+dims[i].name+' = '+av.labels[0]+' reads '+fmt(av.values[0],4)+
+        ' against an independent '+fmt(gS[av.labels[0]],4)+' over '+commas(gN[av.labels[0]])+' values present. Blank cells are left out of the divisor, not counted as zero.';
+    }
+  }
+  add('Group averages divide by the values present, not by the rows',avgBad===0,avgNote);
+
   if(S.corr && S.corr.cols.length>1){
     var cBad=0;
     for(i=0;i<S.corr.m.length;i++){
@@ -5612,7 +6515,7 @@ function selfCheck(){
       'Diagonal is exactly 1, r stays within -1 to 1, and r(a,b) equals r(b,a) across '+S.corr.cols.length+' measures.');
   }
 
-  var dupSeen={}, dupCount=0;
+  var dupSeen=dict(), dupCount=0;
   for(i=0;i<S.view.length;i++){
     var key=S.rows[S.view[i]].join('\u0001');
     if(dupSeen[key]) dupCount++; else dupSeen[key]=1;
@@ -5686,8 +6589,8 @@ function selfCheck(){
         var bnd=blist[bl]; blo=null; bhi=null;
         for(bq=0;bq<(bnd.kind==='row'?P.cells[bnd.ix].length:P.cells.length);bq++){
           bc = bnd.kind==='row' ? P.cells[bnd.ix][bq] : P.cells[bq][bnd.ix];
-          if(bc.n<PRv.minCell) continue;
-          var bv=bc.s/bc.n;
+          if(pvn(bc)<PRv.minCell) continue;
+          var bv=bc.s/pvn(bc);
           if(blo===null||bv<blo) blo=bv;
           if(bhi===null||bv>bhi) bhi=bv;
         }
@@ -6071,13 +6974,13 @@ function applyFixes(){
     c=S.cols[f.col];
     if(!c) continue;
     if(f.kind==='trimCase'){
-      var counts={}, best={};
+      var counts=dict(), best=dict();
       for(k=0;k<c.vals.length;k++){
         var v0=c.vals[k];
         if(v0===null) continue;
         var t=String(v0).replace(/\s+/g,' ').replace(/^ | $/g,'');
         var low=t.toLowerCase();
-        if(!counts[low]) counts[low]={};
+        if(!counts[low]) counts[low]=dict();
         counts[low][t]=(counts[low][t]||0)+1;
       }
       for(var low2 in counts){
@@ -6132,7 +7035,7 @@ function applyFixes(){
           fill = f.kind==='fillMedian' ? d2.med : d2.mean;
         }
       } else if(f.kind==='fillMode'){
-        var freq={}, bn=-1;
+        var freq=dict(), bn=-1;
         for(k=0;k<c.vals.length;k++){
           if(c.vals[k]===null) continue;
           var key2=String(c.vals[k]);
@@ -6167,7 +7070,7 @@ function applyFixes(){
         if((v2<st2.loF||v2>st2.hiF) && !S.dropped[k]){ S.dropped[k]=1; f.n++; }
       }
     } else if(f.kind==='dedupeFirst'||f.kind==='dropDupes'){
-      var seen={}, groups={};
+      var seen=dict(), groups=dict();
       for(k=0;k<S.rows.length;k++){
         var sig=S.rows[k].join('\u0001');
         if(!groups[sig]) groups[sig]=[];
@@ -6553,6 +7456,7 @@ function refreshInner(){
   renderFilters();
   renderColumns();
   renderCorr();
+  renderRecs();
   refreshBuilder();
   renderCharts();
   updateSelChip();
@@ -6630,7 +7534,7 @@ function finishLoad(name){
   S.cohortParams=null; S.cohort=null; S.brief='';
   S.driverParams=null; S.drivers=null;
   S.forecastParams=null; S.forecast=null;
-  S.bizQ=''; S.bizCtx=''; S.briefTruncated=false;
+  S.bizQ=''; S.bizCtx=''; S.briefTruncated=false; S.recFocus='auto'; S.recs=null;
   if($('bq')) $('bq').value='';
   if($('bctx')) $('bctx').value='';
   $('fname').textContent=name+' \u00B7 '+commas(S.rows.length)+' rows \u00B7 '+S.cols.length+' cols';
@@ -6833,6 +7737,11 @@ function init(){
       toast('Cohorts built');
     }
   };
+  $('rec-focus').onchange=function(){
+    var fv=$('rec-focus').value;
+    S.recFocus = fv==='auto' ? 'auto' : parseInt(fv,10);
+    renderRecs();
+  };
   $('brun').onclick=runBrief;
   $('bq').oninput=function(){ S.bizQ=$('bq').value; };
   $('bctx').oninput=function(){ S.bizCtx=$('bctx').value; };
@@ -6887,7 +7796,10 @@ window.SignalDesk={ S:S, ingest:ingest, profileView:profileView, parseCSV:parseC
   fcFitLinear:fcFitLinear, fcFitSES:fcFitSES, fcFitHolt:fcFitHolt, fcFitHW:fcFitHW,
   fcNextBucket:fcNextBucket, fcSeasonLen:fcSeasonLen, fcHoldoutSize:fcHoldoutSize,
   renderForecast:renderForecast, refreshForecastBuilder:refreshForecastBuilder,
-  drawForecast:drawForecast, forecastRun:forecastRun };
+  drawForecast:drawForecast, forecastRun:forecastRun,
+  recommend:recommend, renderRecs:renderRecs, edgePartial:edgePartial, additive:additive,
+  pValueF:pValueF, pValueT:pValueT, pValueR:pValueR, betai:betai, lgamma:lgamma, spearman:spearman,
+  goPane:goPane, splitDMY:splitDMY, dict:dict };
 
 })();
 
